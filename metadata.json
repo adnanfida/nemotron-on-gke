@@ -1,0 +1,6 @@
+{
+  "name": "GKE Nemotron-3 Deployment Generator",
+  "description": "An interactive, dynamic generator and advisor to deploy, cache, and scale NVIDIA Nemotron-3 LLMs on Google Kubernetes Engine (GKE) with L4/A100 accelerators.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
