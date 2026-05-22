@@ -9,12 +9,12 @@ import { Sparkles, Terminal, FileCode, MessageSquare } from "lucide-react";
 
 export default function App() {
   const [config, setConfig] = useState<GKEConfig>({
-    modelType: "nemotron-3-8b-chat",
+    modelType: "llama-3-1-nemotron-nano-8b",
     customModelId: "",
     servingFramework: "vllm",
     gpuType: "nvidia-l4",
     gpuCount: 1,
-    gkeType: " autopilot",
+    gkeType: "autopilot",
     storageType: "empty-dir",
     pvcSize: 200,
     gcsBucketName: "",
@@ -23,6 +23,7 @@ export default function App() {
     useHuggingFaceToken: true,
     useNGCKey: false,
     enableWorkloadIdentity: false,
+    enableScaling: false,
   });
 
   const [activePaneTab, setActivePaneTab] = useState<"blueprints" | "advisor">("blueprints");
@@ -42,12 +43,12 @@ export default function App() {
 
   const resetConfig = () => {
     setConfig({
-      modelType: "nemotron-3-8b-chat",
+      modelType: "llama-3-1-nemotron-nano-8b",
       customModelId: "",
       servingFramework: "vllm",
       gpuType: "nvidia-l4",
       gpuCount: 1,
-      gkeType: " autopilot",
+      gkeType: "autopilot",
       storageType: "empty-dir",
       pvcSize: 200,
       gcsBucketName: "",
@@ -72,12 +73,12 @@ export default function App() {
         <header className="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-slate-200 pb-6 gap-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 flex flex-row items-center justify-center shadow-sm">
-              <Terminal className="w-5 h-5 text-indigo-605" />
+              <Terminal className="w-5 h-5 text-indigo-600" />
             </div>
             <div>
               <h1 className="text-xl md:text-2xl font-extrabold tracking-tight text-slate-900 font-sans flex items-center gap-2">
                 Nemotron-3 GKE Deployment Generator
-                <Sparkles className="w-4.5 h-4.5 text-indigo-500 animate-pulse" />
+                <Sparkles className="w-4 h-4 text-indigo-500 animate-pulse" />
               </h1>
               <p className="text-xs text-slate-500 mt-0.5 leading-relaxed font-medium">
                 Generate optimized GKE Kubernetes manifests, SSD persistent volume claims, and NVIDIA acceleration specifications to scale Meta and NeMo weights.
@@ -115,8 +116,8 @@ export default function App() {
                 onClick={() => setActivePaneTab("blueprints")}
                 className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
                   activePaneTab === "blueprints"
-                    ? "bg-white text-indigo-650 shadow-sm border border-slate-200/50"
-                    : "text-slate-550 hover:text-slate-800"
+                    ? "bg-white text-indigo-600 shadow-sm border border-slate-200/50"
+                    : "text-slate-500 hover:text-slate-800"
                 }`}
               >
                 <FileCode className="w-4 h-4" />
@@ -127,8 +128,8 @@ export default function App() {
                 onClick={() => setActivePaneTab("advisor")}
                 className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
                   activePaneTab === "advisor"
-                    ? "bg-white text-indigo-650 shadow-sm border border-slate-200/50"
-                    : "text-slate-550 hover:text-slate-800"
+                    ? "bg-white text-indigo-600 shadow-sm border border-slate-200/50"
+                    : "text-slate-500 hover:text-slate-800"
                 }`}
               >
                 <MessageSquare className="w-4 h-4" />
@@ -149,9 +150,9 @@ export default function App() {
         <footer className="border-t border-slate-200 pt-6 mt-6 flex flex-col sm:flex-row items-center justify-between text-[11px] text-slate-500 font-semibold gap-4">
           <p>© 2026 Kubernetes LLM Architect Series. Built for advanced Nvidia acceleration.</p>
           <div className="flex items-center gap-4">
-            <a href="https://huggingface.co/nvidia" referrerPolicy="no-referrer" target="_blank" className="hover:text-slate-650 transition-colors">NVIDIA HF Profile</a>
+            <a href="https://huggingface.co/nvidia" referrerPolicy="no-referrer" target="_blank" className="hover:text-slate-600 transition-colors">NVIDIA HF Profile</a>
             <span>•</span>
-            <a href="https://cloud.google.com/kubernetes-engine" referrerPolicy="no-referrer" target="_blank" className="hover:text-slate-650 transition-colors">GKE Documentation</a>
+            <a href="https://cloud.google.com/kubernetes-engine" referrerPolicy="no-referrer" target="_blank" className="hover:text-slate-600 transition-colors">GKE Documentation</a>
           </div>
         </footer>
 

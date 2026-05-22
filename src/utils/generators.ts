@@ -34,6 +34,32 @@ export function getGPUDomainName(gpuType: string): string {
   }
 }
 
+// Node vCPU/memory totals for each (gpuType, gpuCount). Values are the
+// raw machine-type capacity; getPodResources() trims headroom from these
+// for the pod's CPU/memory requests so daemonsets and the GCS-FUSE sidecar
+// have room to schedule.
+const NODE_CAPACITY: Record<string, Record<number, [number, number]>> = {
+  "nvidia-l4":          { 1: [12, 48],  2: [24, 96],  4: [48, 192], 8: [96, 384] },
+  "nvidia-a100-40gb":   { 1: [12, 85],  2: [24, 170], 4: [48, 340], 8: [96, 680] },
+  "nvidia-a100-80gb":   { 1: [12, 170], 2: [24, 340], 4: [48, 680], 8: [96, 1360] },
+  "nvidia-h100-80gb":   { 1: [26, 234], 2: [52, 468], 4: [104, 936], 8: [208, 1872] },
+  "nvidia-t4":          { 1: [4, 15],   2: [8, 30],   4: [16, 60],  8: [32, 120] },
+};
+
+// Reserve 2 vCPU + 6Gi of memory for kube-system, CSI drivers, and the
+// gcsfuse sidecar so the LLM pod can actually schedule.
+const CPU_HEADROOM = 2;
+const MEM_HEADROOM_GI = 6;
+
+export function getPodResources(gpuType: string, gpuCount: number): { cpu: number; memoryGi: number } {
+  const node = NODE_CAPACITY[gpuType]?.[gpuCount];
+  if (!node) return { cpu: 8, memoryGi: 32 };
+  return {
+    cpu: Math.max(node[0] - CPU_HEADROOM, 1),
+    memoryGi: Math.max(node[1] - MEM_HEADROOM_GI, 8),
+  };
+}
+
 export function getMachineTypeRecommendation(gpuType: string, gpuCount: number): string {
   switch (gpuType) {
     case "nvidia-l4":
@@ -45,78 +71,98 @@ export function getMachineTypeRecommendation(gpuType: string, gpuCount: number):
     case "nvidia-h100-80gb":
       return `a3-highgpu-${gpuCount}g`;
     case "nvidia-t4":
-      return `n1-standard-${gpuCount * 4}-gput4-${gpuCount}`;
+      return `n1-standard-${gpuCount * 4}`;
     default:
       return "g2-standard-12";
   }
 }
 
+// NIM container catalog. Paths verified May 2026 against build.nvidia.com
+// and the NVIDIA developer forums. For modelTypes not in this map the
+// deployment is emitted with a placeholder image + warning comment and
+// the UI surfaces a banner advising the user to switch to vLLM or Triton.
+//
+// Where a single NIM serves multiple precision variants via internal
+// profiles (e.g. Nemotron-3 Nano 30B-A3B), both modelType keys point at
+// the same image - the container selects BF16/FP8 at startup.
+const NIM_CATALOG: Partial<Record<GKEConfig["modelType"], string>> = {
+  "llama-3-1-nemotron-nano-8b":          "nvcr.io/nim/nvidia/llama-3.1-nemotron-nano-8b-v1:latest",
+  "llama-3-3-nemotron-super-49b":        "nvcr.io/nim/nvidia/llama-3.3-nemotron-super-49b-v1:latest",
+  "llama-3-1-nemotron-70b":              "nvcr.io/nim/nvidia/llama-3.1-nemotron-70b-instruct:latest",
+  "nemotron-3-nano-30b-a3b-bf16":        "nvcr.io/nim/nvidia/nemotron-3-nano:latest",
+  "nemotron-3-nano-30b-a3b-fp8":         "nvcr.io/nim/nvidia/nemotron-3-nano:latest",
+  "nemotron-3-nano-omni-30b-a3b":        "nvcr.io/nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:latest",
+  "nemotron-3-super-120b-a12b-nvfp4":    "nvcr.io/nim/nvidia/nemotron-3-super-120b-a12b:1.8.0-variant",
+};
+
+export function getNimImage(modelType: GKEConfig["modelType"]): { image: string; supported: boolean } {
+  const img = NIM_CATALOG[modelType];
+  if (img) return { image: img, supported: true };
+  return { image: "nvcr.io/nim/nvidia/PLACEHOLDER-NO-NIM-PUBLISHED:latest", supported: false };
+}
+
+// Size = approximate on-disk / VRAM-resident weight footprint in GB.
+// Heuristic: BF16/FP16 ~= 2 * params, FP8 ~= 1 * params, NVFP4 ~= 0.5 * params.
 export function getModelInfo(config: GKEConfig): { id: string; size: number; name: string } {
   switch (config.modelType) {
-    case "nemotron-3-8b-chat":
+    case "nemotron-3-nano-4b":
       return {
-        id: "nvidia/nemotron-3-8b-chat-1.1",
-        size: 16,
-        name: "Nemotron-3 8B Chat 1.1",
+        id: "nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16",
+        size: 8,
+        name: "Nemotron-3 Nano 4B (BF16)",
       };
-    case "nemotron-3-8b-qa":
+    case "nemotron-3-nano-30b-a3b-bf16":
       return {
-        id: "nvidia/nemotron-3-8b-qa-4k",
-        size: 16,
-        name: "Nemotron-3 8B Question-Answering 4k",
-      };
-    case "nemotron-3-8b-base":
-      return {
-        id: "nvidia/nemotron-3-8b-base",
-        size: 16,
-        name: "Nemotron-3 8B Foundational Base",
-      };
-    case "nemotron-3-8b-instruct":
-      return {
-        id: "nvidia/nemotron-3-8b-instruct",
-        size: 16,
-        name: "Nemotron-3 8B Instruct",
-      };
-    case "nemotron-3-8b-summarize":
-      return {
-        id: "nvidia/nemotron-3-8b-summarize-4k",
-        size: 16,
-        name: "Nemotron-3 8B Summarize-4k",
-      };
-    case "nemotron-3-8b-code":
-      return {
-        id: "nvidia/nemotron-3-8b-code-4k",
-        size: 16,
-        name: "Nemotron-3 8B Programming Code-4k",
-      };
-    case "llama-3-nemotron-70b":
-      return {
-        id: "nvidia/Llama-3-Nemotron-70B-Instruct",
-        size: 140,
-        name: "Llama-3 Nemotron 70B Instruct",
-      };
-    case "nemotron-3-nano-30b":
-      return {
-        id: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+        id: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
         size: 60,
-        name: "Nemotron-3 Nano 30B A3B",
+        name: "Nemotron-3 Nano 30B-A3B (BF16)",
       };
-    case "nemotron-3-super-120b":
+    case "nemotron-3-nano-30b-a3b-fp8":
       return {
-        id: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8",
-        size: 120, // 120 GB in compressed FP8 format
-        name: "Nemotron-3 Super 120B A12B FP8",
+        id: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8",
+        size: 30,
+        name: "Nemotron-3 Nano 30B-A3B (FP8)",
       };
-    case "llama-nemotron-ultra-253b":
+    case "nemotron-3-nano-omni-30b-a3b":
       return {
-        id: "nvidia/Llama-Nemotron-Ultra-253B",
+        id: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16",
+        size: 60,
+        name: "Nemotron-3 Nano Omni 30B-A3B Reasoning (BF16)",
+      };
+    case "nemotron-3-super-120b-a12b-nvfp4":
+      return {
+        id: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4",
+        size: 60,
+        name: "Nemotron-3 Super 120B-A12B (NVFP4)",
+      };
+    case "llama-3-1-nemotron-nano-8b":
+      return {
+        id: "nvidia/Llama-3.1-Nemotron-Nano-8B-v1",
+        size: 16,
+        name: "Llama-3.1-Nemotron Nano 8B v1",
+      };
+    case "llama-3-3-nemotron-super-49b":
+      return {
+        id: "nvidia/Llama-3.3-Nemotron-Super-49B-v1",
+        size: 98,
+        name: "Llama-3.3-Nemotron Super 49B v1",
+      };
+    case "llama-3-1-nemotron-70b":
+      return {
+        id: "nvidia/Llama-3.1-Nemotron-70B-Instruct-HF",
+        size: 140,
+        name: "Llama-3.1-Nemotron 70B Instruct",
+      };
+    case "llama-3-1-nemotron-ultra-253b":
+      return {
+        id: "nvidia/Llama-3.1-Nemotron-Ultra-253B-v1",
         size: 506,
-        name: "Llama Nemotron Ultra 253B",
+        name: "Llama-3.1-Nemotron Ultra 253B v1",
       };
     default:
       return {
         id: config.customModelId || "my-custom-org/nemotron-model",
-        size: 32, // baseline guess
+        size: 32,
         name: "Custom Nemotron-based LLM",
       };
   }
@@ -124,8 +170,7 @@ export function getModelInfo(config: GKEConfig): { id: string; size: number; nam
 
 export function generateAllFiles(config: GKEConfig): GeneratedFile[] {
   const modelInfo = getModelInfo(config);
-  const totalVram = getGPUVram(config.gpuType) * config.gpuCount;
-  const isAutopilot = config.gkeType.trim() === "autopilot";
+  const isAutopilot = config.gkeType === "autopilot";
   
   const files: GeneratedFile[] = [];
 
@@ -145,15 +190,9 @@ export function generateAllFiles(config: GKEConfig): GeneratedFile[] {
     content: generateServiceYaml(config)
   });
 
-  // 3. secrets.yaml
-  if (config.useHuggingFaceToken || config.useNGCKey) {
-    files.push({
-      name: "gke-secrets.yaml",
-      language: "yaml",
-      description: "Kubernetes Secret template to hold Hugging Face Hub token or Nvidia NGC credentials securely.",
-      content: generateSecretsYaml(config)
-    });
-  }
+  // 3. (no secrets.yaml) - secrets are created by deploy.sh via
+  // 'kubectl create secret generic --from-literal=...' so the API tokens
+  // never land in a YAML file that might get committed.
 
   // 4. pv-claim.yaml or Storage-spec (PVC)
   if (config.storageType === "pvc") {
@@ -162,6 +201,34 @@ export function generateAllFiles(config: GKEConfig): GeneratedFile[] {
       language: "yaml",
       description: "Persistent Volume Claim specifying high-speed SSD provision for model weights caching.",
       content: generatePvcYaml(config)
+    });
+  }
+
+  // 4a. HPA + PDB for production resilience (opt-in)
+  if (config.enableScaling) {
+    files.push({
+      name: "gke-hpa.yaml",
+      language: "yaml",
+      description: "HorizontalPodAutoscaler scaling 1-4 replicas on CPU. See comments for a GPU duty-cycle alternative.",
+      content: generateHpaYaml(config),
+    });
+    files.push({
+      name: "gke-pdb.yaml",
+      language: "yaml",
+      description: "PodDisruptionBudget keeping at least one inference pod available during node drains and upgrades.",
+      content: generatePdbYaml(config),
+    });
+  }
+
+  // 4b. ServiceAccount (KSA) for Workload Identity.
+  // Required whenever the pod needs to authenticate to GCP APIs - explicit
+  // WI opt-in, or GCS-FUSE (which authenticates the bucket mount via WI).
+  if (config.enableWorkloadIdentity || config.storageType === "gcs-fuse") {
+    files.push({
+      name: "gke-serviceaccount.yaml",
+      language: "yaml",
+      description: "Kubernetes ServiceAccount annotated to impersonate a GCP IAM service account via Workload Identity.",
+      content: generateServiceAccountYaml(config)
     });
   }
 
@@ -186,7 +253,6 @@ export function generateAllFiles(config: GKEConfig): GeneratedFile[] {
 
 function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size: number; name: string }, isAutopilot: boolean): string {
   const isNim = config.servingFramework === "nim";
-  const isTriton = config.servingFramework === "triton";
   const isVllm = config.servingFramework === "vllm";
   
   const gpuLabel = getGPUDomainName(config.gpuType);
@@ -205,6 +271,11 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
         - name: cache-volume
           mountPath: /data`;
   } else if (config.storageType === "gcs-fuse") {
+    // The 'gke-gcsfuse-cache' emptyDir is the name the sidecar expects for
+    // its file cache. file-cache:max-size-mb:-1 lets the cache grow to fill
+    // the volume. metadata-cache:ttl-secs:60 helps cold-start latency on
+    // large model directories. See:
+    //   https://cloud.google.com/storage/docs/cloud-storage-fuse/file-cache
     volumesBlock = `      volumes:
       - name: gcs-bucket
         csi:
@@ -212,7 +283,11 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
           readOnly: false
           volumeAttributes:
             bucketName: "${config.gcsBucketName || "my-gke-nemotron-weights"}"
-            mountOptions: "implicit-dirs"`;
+            mountOptions: "implicit-dirs,file-cache:max-size-mb:-1,metadata-cache:ttl-secs:60"
+      - name: gke-gcsfuse-cache
+        emptyDir:
+          medium: Memory
+          sizeLimit: 64Gi`;
     volumeMountsBlock = `        volumeMounts:
         - name: gcs-bucket
           mountPath: /data`;
@@ -221,7 +296,8 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
     volumesBlock = `      volumes:
       - name: cache-volume
         emptyDir:
-          medium: Memory // Set to Memory only for small weights or high RAM machines`;
+          # Set medium to Memory only for small weights or high-RAM machines
+          medium: Memory`;
     if (config.gpuType === "nvidia-l4") {
       volumesBlock = `      volumes:
       - name: cache-volume
@@ -232,21 +308,29 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
           mountPath: /data`;
   }
 
-  // Annotations
+  // Pod-template annotations. Workload Identity is *not* an annotation on
+  // the pod - it's the KSA reference (serviceAccountName below) plus the
+  // KSA's iam.gke.io/gcp-service-account annotation (emitted by
+  // generateServiceAccountYaml). Only GCS-FUSE keeps annotations here.
   let annotationsBlock = "";
   if (config.storageType === "gcs-fuse") {
     annotationsBlock = `      annotations:
         gke-gcsfuse/volumes: "true"
-        gke-gcsfuse/cpu-limit: "3"
-        gke-gcsfuse/memory-limit: "6Gi"`;
+        gke-gcsfuse/cpu-limit: "4"
+        gke-gcsfuse/memory-limit: "8Gi"
+        gke-gcsfuse/ephemeral-storage-limit: "64Gi"`;
   }
 
-  if (config.enableWorkloadIdentity) {
-    const annotGcs = config.storageType === "gcs-fuse" ? `\n        iam.gke.io/gke-metadata-server-enabled: "true"` : "";
-    annotationsBlock = `      annotations:${annotGcs}
-        # Required for authenticating safely against Google Cloud services without keys
-        iam.gke.io/gke-metadata-server-enabled: "true"`;
-  }
+  // serviceAccountName line - set when WI is on OR GCS-FUSE is in use
+  // (GCS-FUSE needs a WI-bound KSA to authenticate to the bucket).
+  const useKsa = config.enableWorkloadIdentity || config.storageType === "gcs-fuse";
+  const serviceAccountLine = useKsa ? `      serviceAccountName: nemotron-sa\n` : "";
+
+  // imagePullSecrets - NIM containers live on nvcr.io which requires auth.
+  // deploy.sh creates the docker-registry secret 'nvcr-pull-secret' below.
+  const imagePullSecretsBlock = config.servingFramework === "nim"
+    ? `      imagePullSecrets:\n      - name: nvcr-pull-secret\n`
+    : "";
 
   // Image & Startup commands based on serving framework
   let containerImage = "";
@@ -255,10 +339,17 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
   let envVars = "";
 
   if (isVllm) {
-    containerImage = "vllm/vllm-openai:v0.4.3"; // standard compatible vllm image
-    const vParam = `--model ${modelInfo.id} --tensor-parallel-size ${config.gpuCount} --download-dir /data --port 8000`;
+    // v0.12 release tag recommended by the vLLM Nemotron recipes
+    containerImage = "vllm/vllm-openai:deploy";
     containerArgs = `        args:
-        - "${vParam}"`;
+        - "--model"
+        - "${modelInfo.id}"
+        - "--tensor-parallel-size"
+        - "${config.gpuCount}"
+        - "--download-dir"
+        - "/data"
+        - "--port"
+        - "8000"`;
     containerPorts = `        ports:
         - containerPort: 8000
           name: api`;
@@ -275,14 +366,15 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
     envsList += `\n        - name: VLLM_CACHE_DIR\n          value: "/data"`;
     envVars = `        env:${envsList}`;
   } else if (isNim) {
-    // NVIDIA NIM deployment
-    containerImage = `nvcr.io/nim/nvidia/${config.modelType}-chat:latest`;
-    if (config.modelType === "custom") {
-      containerImage = `nvcr.io/nim/nvidia/nemotron-3-8b-chat:latest`; // default custom
-    }
-    containerArgs = `        # NIM auto-optimizes based on the accessible GPUs and volume caches
-        args:
-        - "nim_server"`;
+    // NIM containers ship an ENTRYPOINT that starts the OpenAI-compatible
+    // server; we only need to set the image. Args are intentionally empty.
+    const nim = getNimImage(config.modelType);
+    containerImage = nim.image;
+    containerArgs = nim.supported
+      ? `        # NIM auto-optimizes based on the accessible GPUs and volume caches`
+      : `        # WARNING: no published NIM container exists for ${config.modelType}.
+        # Replace 'image:' above with a valid nvcr.io/nim path, or switch
+        # the Serving Framework to vLLM or Triton in the generator UI.`;
     containerPorts = `        ports:
         - containerPort: 8000
           name: openai-api`;
@@ -307,10 +399,11 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
   } else {
     // Triton Inference Server
     containerImage = "nvcr.io/nvidia/tritonserver:24.03-py3";
-    containerArgs = `        args:
-        - "tritonserver"
+    containerArgs = `        command: ["tritonserver"]
+        args:
         - "--model-repository=/data/models"
-        - "--allow-gpu-metrics=true"`;
+        - "--allow-gpu-metrics=true"
+        - "--metrics-port=8002"`;
     containerPorts = `        ports:
         - containerPort: 8000
           name: http-api
@@ -347,9 +440,38 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
       # No manual tolerations or nodeSelectors needed.`;
   }
 
-  // CPU and Memory baseline requests
-  const cpuCount = config.gpuCount * 12;
-  const memCount = config.gpuCount * 48; // GKE recommendations is large ram for gpu machines
+  // CPU/memory requests derived from the actual machine-type capacity
+  // for this (gpuType, gpuCount), minus headroom for daemonsets/sidecars.
+  const { cpu: cpuCount, memoryGi: memCount } = getPodResources(config.gpuType, config.gpuCount);
+
+  // Per-framework health endpoints. startupProbe grants up to 30 min for
+  // weight load (failureThreshold: 60 * periodSeconds: 30s); readiness +
+  // liveness take over once the startupProbe has succeeded once.
+  //   vLLM   v0.12+ : /health         (ready=live)
+  //   Triton v2     : /v2/health/{ready,live}
+  //   NIM           : /v1/health/{ready,live}
+  const probePaths =
+    isVllm   ? { ready: "/health",            live: "/health" } :
+    isNim    ? { ready: "/v1/health/ready",   live: "/v1/health/live" } :
+               { ready: "/v2/health/ready",   live: "/v2/health/live" };
+  const probesBlock = `        startupProbe:
+          httpGet:
+            path: ${probePaths.ready}
+            port: 8000
+          periodSeconds: 30
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: ${probePaths.ready}
+            port: 8000
+          periodSeconds: 10
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: ${probePaths.live}
+            port: 8000
+          periodSeconds: 30
+          failureThreshold: 3`;
 
   const manifest = `apiVersion: apps/v1
 kind: Deployment
@@ -366,8 +488,8 @@ spec:
   template:
     metadata:
       labels:
-        app: nemotron-service\n${annotationsBlock ? annotationsBlock + "\n" : ""}\n    spec:
-      containers:
+        app: nemotron-service\n${annotationsBlock ? annotationsBlock + "\n" : ""}    spec:
+${serviceAccountLine}${imagePullSecretsBlock}      containers:
       - name: llm-engine
         image: ${containerImage}
 ${containerArgs}
@@ -375,15 +497,16 @@ ${containerPorts}
         resources:
           # CPU & Memory guidelines optimized for model weights loaded in VRAM
           requests:
-            cpu: "${cpuCount || 8}"
-            memory: "${memCount || 32}Gi"
+            cpu: "${cpuCount}"
+            memory: "${memCount}Gi"
             nvidia.com/gpu: "${resourceGpus}"
           limits:
-            cpu: "${cpuCount || 8}"
-            memory: "${memCount || 32}Gi"
+            cpu: "${cpuCount}"
+            memory: "${memCount}Gi"
             nvidia.com/gpu: "${resourceGpus}"
 ${envVars}
 ${volumeMountsBlock}
+${probesBlock}
 ${constraintsBlock}
 ${volumesBlock}
 `;
@@ -424,23 +547,66 @@ ${ports}
 `;
 }
 
-function generateSecretsYaml(config: GKEConfig): string {
-  let dataLines = "";
-  if (config.useHuggingFaceToken) {
-    dataLines += `  # base64 encoded token: echo -n "YOUR_HF_TOKEN" | base64\n  hf-token: cGxhY2Vob2xkZXJfdG9rZW5fZXhhbXBsZQ== # Replace with real base64 value\n`;
-  }
-  if (config.useNGCKey || config.servingFramework === "nim") {
-    dataLines += `  # base64 encoded API Key: echo -n "YOUR_NGC_KEY" | base64\n  ngc-api-key: cGxhY2Vob2xkZXJfbmdjX2tleV9leGFtcGxl # Replace with real base64 value\n`;
-  }
-
-  return `apiVersion: v1
-kind: Secret
+function generateHpaYaml(config: GKEConfig): string {
+  return `apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
 metadata:
-  name: nemotron-secrets
+  name: nemotron-hpa
   namespace: ${config.namespace || "default"}
-type: Opaque
-data:
-${dataLines}`;
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nemotron-deployment
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  # For GPU duty-cycle scaling, install the Custom Metrics Stackdriver
+  # Adapter and uncomment:
+  # - type: External
+  #   external:
+  #     metric:
+  #       name: kubernetes.io|container|accelerator|duty_cycle
+  #       selector:
+  #         matchLabels:
+  #           resource.labels.namespace_name: ${config.namespace || "default"}
+  #     target:
+  #       type: AverageValue
+  #       averageValue: "70"
+`;
+}
+
+function generatePdbYaml(config: GKEConfig): string {
+  return `apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nemotron-pdb
+  namespace: ${config.namespace || "default"}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: nemotron-service
+`;
+}
+
+function generateServiceAccountYaml(config: GKEConfig): string {
+  return `apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nemotron-sa
+  namespace: ${config.namespace || "default"}
+  annotations:
+    # Bind this KSA to a GCP IAM service account. Create the GSA and the
+    # workloadIdentityUser binding via deploy.sh, then replace the email below.
+    iam.gke.io/gcp-service-account: nemotron-gsa@YOUR_PROJECT_ID.iam.gserviceaccount.com
+`;
 }
 
 function generatePvcYaml(config: GKEConfig): string {
@@ -475,20 +641,31 @@ gsutil mb -l us-central1 gs://${config.gcsBucketName || "my-gke-nemotron-weights
 `;
   }
 
+  const useKsa = config.enableWorkloadIdentity || config.storageType === "gcs-fuse";
+
   let clusterCommand = "";
   if (isAutopilot) {
+    // Autopilot enables Workload Identity AND the GCS-FUSE CSI driver
+    // by default - no extra flags required.
     clusterCommand = `# Create a GKE Autopilot cluster loaded with GPU support
 gcloud container clusters create-auto nemotron-cluster \\
     --region us-central1 \\
     --project=\$PROJECT_ID`;
   } else {
+    const wiClusterFlag = useKsa ? " \\\n    --workload-pool=\$PROJECT_ID.svc.id.goog" : "";
+    const wiNodeFlag = useKsa ? " \\\n    --workload-metadata=GKE_METADATA" : "";
+    // GCS-FUSE on Standard clusters needs the addon enabled at cluster
+    // creation time (Autopilot has it on by default).
+    const gcsFuseAddonFlag = config.storageType === "gcs-fuse"
+      ? " \\\n    --addons=GcsFuseCsiDriver"
+      : "";
     clusterCommand = `# Create a GKE Standard cluster with a dynamic GPU Node Pool
 # First create the minimal cluster manager control plane
 gcloud container clusters create nemotron-cluster \\
     --zone us-central1-a \\
     --num-nodes=1 \\
     --machine-type=e2-standard-4 \\
-    --project=\$PROJECT_ID
+    --project=\$PROJECT_ID${wiClusterFlag}${gcsFuseAddonFlag}
 
 # Create a dedicated high-throughput GPU Node pool accommodating your configuration
 gcloud container node-pools create nemotron-gpu-pool \\
@@ -499,11 +676,66 @@ gcloud container node-pools create nemotron-gpu-pool \\
     --num-nodes=1 \\
     --project=\$PROJECT_ID \\
     --scopes=https://www.googleapis.com/auth/cloud-platform \\
-    --enable-autoscaling --min-nodes=0 --max-nodes=2`;
+    --enable-autoscaling --min-nodes=0 --max-nodes=2${wiNodeFlag}`;
+  }
+
+  // On Standard clusters the NVIDIA GPU device driver isn't pre-installed.
+  // The COS driver-installer DaemonSet from GoogleCloudPlatform/container-
+  // engine-accelerators handles all current driver versions; without this
+  // pods stay Pending with 'no nvidia.com/gpu available'. Autopilot installs
+  // drivers automatically.
+  const gpuDriverInstallBlock = !isAutopilot
+    ? `
+# ----------------------------------------------------
+# Install NVIDIA GPU device drivers (Standard clusters only)
+# ----------------------------------------------------
+echo "Installing NVIDIA GPU device driver DaemonSet..."
+kubectl apply -f https://raw.githubusercontent.com/GoogleCloudPlatform/container-engine-accelerators/master/nvidia-driver-installer/cos/daemonset-preloaded.yaml
+`
+    : "";
+
+  let wiSetupBlock = "";
+  if (useKsa) {
+    const gcsGrant = config.storageType === "gcs-fuse"
+      ? `\n# Grant the GSA read/write on the model bucket
+gcloud storage buckets add-iam-policy-binding gs://${config.gcsBucketName || "my-gke-nemotron-weights"} \\
+    --member="serviceAccount:nemotron-gsa@\$PROJECT_ID.iam.gserviceaccount.com" \\
+    --role="roles/storage.objectUser"\n`
+      : "";
+    wiSetupBlock = `
+# ----------------------------------------------------
+# Workload Identity: create GSA and bind it to the KSA
+# (gke-serviceaccount.yaml provides the KSA side of the link)
+# ----------------------------------------------------
+gcloud iam service-accounts create nemotron-gsa \\
+    --project=\$PROJECT_ID || echo "GSA already exists, continuing"
+
+gcloud iam service-accounts add-iam-policy-binding \\
+    nemotron-gsa@\$PROJECT_ID.iam.gserviceaccount.com \\
+    --role="roles/iam.workloadIdentityUser" \\
+    --member="serviceAccount:\$PROJECT_ID.svc.id.goog[\$NAMESPACE/nemotron-sa]"
+${gcsGrant}
+# Stamp the real GSA email into the KSA manifest before applying
+sed -i.bak "s/YOUR_PROJECT_ID/\$PROJECT_ID/g" gke-serviceaccount.yaml
+kubectl apply -f gke-serviceaccount.yaml
+`;
   }
 
   let secretsShellBlock = "";
-  if (config.useHuggingFaceToken || config.useNGCKey) {
+  if (config.useHuggingFaceToken || config.useNGCKey || config.servingFramework === "nim") {
+    // For NIM workloads we need TWO secrets: nemotron-secrets (env-var
+    // injection for NGC_API_KEY/HF_TOKEN) AND nvcr-pull-secret (docker
+    // registry auth so the kubelet can pull from nvcr.io). Without the
+    // pull secret NIM pods ErrImagePull regardless of NGC_API_KEY.
+    const pullSecretBlock = config.servingFramework === "nim" ? `
+echo "Creating docker-registry pull secret for nvcr.io..."
+kubectl create secret docker-registry nvcr-pull-secret \\
+    --namespace=${config.namespace || "default"} \\
+    --docker-server=nvcr.io \\
+    --docker-username='\$oauthtoken' \\
+    --docker-password="YOUR_NVIDIA_NGC_API_KEY_HERE" \\
+    --dry-run=client -o yaml | kubectl apply -f -
+` : "";
     secretsShellBlock = `
 # ----------------------------------------------------
 # Define secrets (Hugging Face / NGC)
@@ -514,7 +746,7 @@ kubectl create secret generic nemotron-secrets \\
     ${config.useHuggingFaceToken ? "--from-literal=hf-token=\"YOUR_HF_TOKEN_HERE\" \\" : ""}
     ${config.useNGCKey || config.servingFramework === "nim" ? "--from-literal=ngc-api-key=\"YOUR_NVIDIA_NGC_API_KEY_HERE\" \\" : ""}
     --dry-run=client -o yaml | kubectl apply -f -
-`;
+${pullSecretBlock}`;
   }
 
   return `#!/bin/bash
@@ -553,7 +785,7 @@ gcloud container clusters get-credentials nemotron-cluster \\
 
 # Create GKE standard namespace
 kubectl create namespace \$NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
-
+${gpuDriverInstallBlock}${wiSetupBlock}
 ${secretsShellBlock}
 
 # ----------------------------------------------------
@@ -572,12 +804,12 @@ kubectl get pods -n \$NAMESPACE --watch
 }
 
 function generateTestScript(config: GKEConfig): string {
-  const path = config.servingFramework === "triton" ? "/v1/models" : "/v1/chat/completions";
   const port = "80";
-  
+
   let payloadStr = "";
   if (config.servingFramework === "triton") {
-    payloadStr = `curl http://\$SERVICE_IP:${port}/v1/models/nemotron`;
+    // Triton speaks the KServe v2 protocol, not the OpenAI v1 schema
+    payloadStr = `curl http://\$SERVICE_IP:${port}/v2/models/nemotron/ready`;
   } else {
     // OpenAI specification standard formats
     payloadStr = `curl -X POST http://\$SERVICE_IP:${port}/v1/chat/completions \\

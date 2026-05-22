@@ -6,6 +6,15 @@ interface ChatConsultantProps {
   config: GKEConfig;
 }
 
+// Render a string with **bold** spans as React nodes (no HTML injection).
+function renderBoldInline(text: string): React.ReactNode[] {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) => {
+    const m = part.match(/^\*\*(.+)\*\*$/);
+    return m ? <strong key={i}>{m[1]}</strong> : <React.Fragment key={i}>{part}</React.Fragment>;
+  });
+}
+
 export default function ChatConsultant({ config }: ChatConsultantProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -78,11 +87,11 @@ export default function ChatConsultant({ config }: ChatConsultantProps) {
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-205 shadow-sm overflow-hidden flex flex-col h-[680px]">
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[680px]">
       {/* Header */}
       <div className="bg-slate-50 border-b border-slate-100 p-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Bot className="w-5 h-5 text-indigo-650" />
+          <Bot className="w-5 h-5 text-indigo-600" />
           <div>
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5 leading-none">
               Nemotron GKE Advisor
@@ -107,7 +116,7 @@ export default function ChatConsultant({ config }: ChatConsultantProps) {
               className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 border ${
                 m.sender === "user"
                   ? "bg-indigo-50 border-indigo-200 text-indigo-600"
-                  : "bg-white border-slate-200 text-indigo-605 shadow-xs"
+                  : "bg-white border-slate-200 text-indigo-600 shadow-xs"
               }`}
             >
               {m.sender === "user" ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
@@ -117,30 +126,26 @@ export default function ChatConsultant({ config }: ChatConsultantProps) {
             <div
               className={`rounded-xl p-3 text-xs leading-relaxed ${
                 m.sender === "user"
-                  ? "bg-indigo-655 text-white whitespace-pre-wrap font-medium shadow-sm"
+                  ? "bg-indigo-600 text-white whitespace-pre-wrap font-medium shadow-sm"
                   : "bg-white border border-slate-200 text-slate-800 font-normal shadow-xs prose prose-slate max-w-full"
               }`}
             >
               {m.sender === "ai" ? (
                 <div className="space-y-2 whitespace-pre-wrap">
                   {m.text.split("\n\n").map((para, pIdx) => {
-                    // Check if bullet point list
                     if (para.startsWith("* ") || para.startsWith("- ")) {
                       return (
-                        <ul key={pIdx} className="list-disc pl-4 space-y-1.5 my-1.5 text-slate-705">
+                        <ul key={pIdx} className="list-disc pl-4 space-y-1.5 my-1.5 text-slate-700">
                           {para.split("\n").map((li, lIdx) => (
-                            <li key={lIdx}>{li.replace(/^[\s*-]+/, "").replace(/\*\*(.*?)\*\*/g, "$1")}</li>
+                            <li key={lIdx}>{renderBoldInline(li.replace(/^[\s*-]+/, ""))}</li>
                           ))}
                         </ul>
                       );
                     }
-                    const formatted = para.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
                     return (
-                      <p 
-                        key={pIdx} 
-                        dangerouslySetInnerHTML={{ __html: formatted }}
-                        className="text-slate-700 font-sans"
-                      />
+                      <p key={pIdx} className="text-slate-700 font-sans">
+                        {renderBoldInline(para)}
+                      </p>
                     );
                   })}
                 </div>
@@ -153,7 +158,7 @@ export default function ChatConsultant({ config }: ChatConsultantProps) {
 
         {isLoading && (
           <div className="flex gap-3 max-w-[80%] mr-auto">
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 bg-white border border-slate-200 text-indigo-550">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 bg-white border border-slate-200 text-indigo-500">
               <Loader2 className="w-4 h-4 animate-spin" />
             </div>
             <div className="bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-500 flex items-center gap-2 shadow-xs">
@@ -183,12 +188,12 @@ export default function ChatConsultant({ config }: ChatConsultantProps) {
           onChange={(e) => setInputText(e.target.value)}
           disabled={isLoading}
           placeholder="Ask how to deploy, scale, or customize configs..."
-          className="flex-1 bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:border-indigo-550 focus:outline-none focus:ring-1 focus:ring-indigo-500/10 disabled:opacity-50"
+          className="flex-1 bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/10 disabled:opacity-50"
         />
         <button
           type="submit"
           disabled={!inputText.trim() || isLoading}
-          className="w-10 h-10 rounded-xl bg-indigo-650 hover:bg-indigo-600 text-white flex items-center justify-center font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/10 disabled:opacity-50 flex-shrink-0"
+          className="w-10 h-10 rounded-xl bg-indigo-600 hover:bg-indigo-600 text-white flex items-center justify-center font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/10 disabled:opacity-50 flex-shrink-0"
         >
           <Send className="w-4 h-4" />
         </button>

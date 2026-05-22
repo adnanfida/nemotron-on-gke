@@ -1,7 +1,8 @@
 import React from "react";
 import { GKEConfig } from "../types";
-import { 
-  Server, Cpu, Database, Key, Layers, Settings2, RefreshCcw, Info
+import { getNimImage } from "../utils/generators";
+import {
+  Server, Cpu, Database, Key, Layers, Settings2, RefreshCcw, Info, AlertTriangle
 } from "lucide-react";
 
 interface ConfigFormProps {
@@ -12,16 +13,15 @@ interface ConfigFormProps {
 
 export default function ConfigForm({ config, onChange, onReset }: ConfigFormProps) {
   const models: { id: GKEConfig["modelType"]; label: string; desc: string }[] = [
-    { id: "nemotron-3-8b-chat", label: "Nemotron-3 8B Chat", desc: "Multi-turn conversational assistant" },
-    { id: "nemotron-3-8b-qa", label: "Nemotron-3 8B QA", desc: "Optimized for Question-Answering (4k)" },
-    { id: "nemotron-3-8b-base", label: "Nemotron-3 8B Base", desc: "Foundational base pre-trained model" },
-    { id: "nemotron-3-8b-instruct", label: "Nemotron-3 8B Instruct", desc: "Single-turn instruction-following" },
-    { id: "nemotron-3-8b-summarize", label: "Nemotron-3 8B Summarize", desc: "Distill documents into key summaries" },
-    { id: "nemotron-3-8b-code", label: "Nemotron-3 8B Code", desc: "Tuned for programming & dev syntax" },
-    { id: "nemotron-3-nano-30b", label: "Nemotron-3 Nano 30B A3B", desc: "Dense hybrid agentic reasoning agent" },
-    { id: "nemotron-3-super-120b", label: "Nemotron-3 Super 120B", desc: "Premium Hybrid Mamba-Transformer MoE (FP8)" },
-    { id: "llama-3-nemotron-70b", label: "Llama-3 Nemotron 70B", desc: "NVIDIA-tuned enterprise 140GB tier" },
-    { id: "llama-nemotron-ultra-253b", label: "Llama Nemotron Ultra 253B", desc: "Ultra-scale 253B model for extreme code/reasoning" },
+    { id: "nemotron-3-nano-4b", label: "Nemotron-3 Nano 4B", desc: "Edge/Jetson-friendly hybrid 4B (BF16)" },
+    { id: "nemotron-3-nano-30b-a3b-bf16", label: "Nemotron-3 Nano 30B-A3B (BF16)", desc: "Hybrid MoE, 3B active per fwd pass" },
+    { id: "nemotron-3-nano-30b-a3b-fp8", label: "Nemotron-3 Nano 30B-A3B (FP8)", desc: "Same as above, FP8 weights (~30GB)" },
+    { id: "nemotron-3-nano-omni-30b-a3b", label: "Nemotron-3 Nano Omni 30B-A3B", desc: "Text + image + video + audio reasoning" },
+    { id: "nemotron-3-super-120b-a12b-nvfp4", label: "Nemotron-3 Super 120B-A12B (NVFP4)", desc: "Premium MoE, 12B active, NVFP4 weights" },
+    { id: "llama-3-1-nemotron-nano-8b", label: "Llama-3.1-Nemotron Nano 8B", desc: "Dense Llama-3.1 backbone, NVIDIA-tuned" },
+    { id: "llama-3-3-nemotron-super-49b", label: "Llama-3.3-Nemotron Super 49B", desc: "Mid-tier dense Llama-3.3 fine-tune (NAS-pruned)" },
+    { id: "llama-3-1-nemotron-70b", label: "Llama-3.1-Nemotron 70B Instruct", desc: "NVIDIA-tuned 70B instruct (~140GB BF16)" },
+    { id: "llama-3-1-nemotron-ultra-253b", label: "Llama-3.1-Nemotron Ultra 253B", desc: "Ultra-scale dense 253B (multi-node)" },
     { id: "custom", label: "Custom HF ID", desc: "Provide any custom Hugging Face ID" },
   ];
 
@@ -37,7 +37,7 @@ export default function ConfigForm({ config, onChange, onReset }: ConfigFormProp
         </div>
         <button 
           onClick={onReset}
-          className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-505 font-mono font-semibold transition-colors focus:outline-none"
+          className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-500 font-mono font-semibold transition-colors focus:outline-none"
           title="Reset back to standard setup configurations"
         >
           <RefreshCcw className="w-3.5 h-3.5" />
@@ -48,7 +48,7 @@ export default function ConfigForm({ config, onChange, onReset }: ConfigFormProp
       <div className="space-y-5">
         {/* SECTION 1: Model Choice */}
         <div className="space-y-2">
-          <label className="text-xs font-bold tracking-wider text-slate-505 uppercase flex items-center gap-1.5">
+          <label className="text-xs font-bold tracking-wider text-slate-500 uppercase flex items-center gap-1.5">
             <Server className="w-3.5 h-3.5 text-indigo-500" />
             Model Version
           </label>
@@ -61,7 +61,7 @@ export default function ConfigForm({ config, onChange, onReset }: ConfigFormProp
                 className={`flex flex-col text-left p-3 rounded-xl border text-sm transition-all duration-200 ${
                   config.modelType === m.id
                     ? "bg-indigo-50/55 border-indigo-600 text-indigo-900 ring-1 ring-indigo-500/10"
-                    : "bg-slate-50/60 border-slate-200 text-slate-700 hover:border-slate-305 hover:bg-slate-50 hover:text-slate-900"
+                    : "bg-slate-50/60 border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
                 }`}
               >
                 <span className="font-bold text-xs sm:text-sm">{m.label}</span>
@@ -77,7 +77,7 @@ export default function ConfigForm({ config, onChange, onReset }: ConfigFormProp
                 placeholder="org/custom-nemotron-model"
                 value={config.customModelId}
                 onChange={(e) => onChange({ customModelId: e.target.value })}
-                className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-800 placeholder-slate-400 font-mono focus:border-indigo-550 focus:outline-none focus:ring-1 focus:ring-indigo-500/10"
+                className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-800 placeholder-slate-400 font-mono focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/10"
               />
               <span className="text-[10px] text-slate-500 mt-1 block leading-normal">
                 Enter your private or customized Hugging Face Model Identifier.
@@ -88,7 +88,7 @@ export default function ConfigForm({ config, onChange, onReset }: ConfigFormProp
 
         {/* SECTION 2: Serving Framework */}
         <div className="space-y-2">
-          <label className="text-xs font-bold tracking-wider text-slate-505 uppercase flex items-center gap-1.5">
+          <label className="text-xs font-bold tracking-wider text-slate-500 uppercase flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-indigo-500" />
             Core Inference Engine Framework
           </label>
@@ -132,12 +132,24 @@ export default function ConfigForm({ config, onChange, onReset }: ConfigFormProp
               <span className="text-[10px] text-slate-500 mt-1 leading-relaxed">Multi-model pipelines • Heavy scale</span>
             </button>
           </div>
+
+          {config.servingFramework === "nim" && !getNimImage(config.modelType).supported && (
+            <div className="flex gap-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11px] leading-snug">
+              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <strong>No published NIM</strong> for this model. The generated deployment
+                will include a placeholder image and a warning comment. Switch to vLLM or
+                Triton, or pick a model with a known NIM container (Llama-3.1-Nemotron 70B,
+                Nemotron-3 Nano Omni 30B).
+              </div>
+            </div>
+          )}
         </div>
 
         {/* SECTION 3: Acceleration hardware */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <label className="text-xs font-bold tracking-wider text-slate-505 uppercase flex items-center gap-1.5">
+            <label className="text-xs font-bold tracking-wider text-slate-500 uppercase flex items-center gap-1.5">
               <Cpu className="w-3.5 h-3.5 text-indigo-500" />
               NVIDIA GPU Type
             </label>
@@ -155,7 +167,7 @@ export default function ConfigForm({ config, onChange, onReset }: ConfigFormProp
           </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-bold tracking-wider text-slate-505 uppercase flex items-center gap-1.5 justify-between">
+            <label className="text-xs font-bold tracking-wider text-slate-500 uppercase flex items-center gap-1.5 justify-between">
               <span className="flex items-center gap-1.5">
                 <Cpu className="w-3.5 h-3.5 text-indigo-500" />
                 Accelerator Count ({config.gpuCount})
@@ -184,18 +196,18 @@ export default function ConfigForm({ config, onChange, onReset }: ConfigFormProp
         {/* SECTION 4: GKE Cluster specs */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <label className="text-xs font-bold tracking-wider text-slate-505 uppercase flex items-center gap-1.5">
+            <label className="text-xs font-bold tracking-wider text-slate-500 uppercase flex items-center gap-1.5">
               <Layers className="w-3.5 h-3.5 text-indigo-500" />
               GKE Cluster Managed Type
             </label>
             <div className="flex rounded-xl border border-slate-200 overflow-hidden bg-slate-100 p-1 gap-1">
               <button
                 type="button"
-                onClick={() => onChange({ gkeType: " autopilot" })}
+                onClick={() => onChange({ gkeType: "autopilot" })}
                 className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                  config.gkeType.trim() === "autopilot"
-                    ? "bg-white text-indigo-650 shadow-sm border border-slate-200/50"
-                    : "text-slate-550 hover:text-slate-800"
+                  config.gkeType === "autopilot"
+                    ? "bg-white text-indigo-600 shadow-sm border border-slate-200/50"
+                    : "text-slate-500 hover:text-slate-800"
                 }`}
               >
                 Autopilot
@@ -204,9 +216,9 @@ export default function ConfigForm({ config, onChange, onReset }: ConfigFormProp
                 type="button"
                 onClick={() => onChange({ gkeType: "standard" })}
                 className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                  config.gkeType.trim() === "standard"
-                    ? "bg-white text-indigo-650 shadow-sm border border-slate-200/50"
-                    : "text-slate-550 hover:text-slate-800"
+                  config.gkeType === "standard"
+                    ? "bg-white text-indigo-600 shadow-sm border border-slate-200/50"
+                    : "text-slate-500 hover:text-slate-800"
                 }`}
               >
                 Standard Pool
@@ -215,7 +227,7 @@ export default function ConfigForm({ config, onChange, onReset }: ConfigFormProp
           </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-bold tracking-wider text-slate-505 uppercase flex items-center gap-1.5">
+            <label className="text-xs font-bold tracking-wider text-slate-500 uppercase flex items-center gap-1.5">
               <Layers className="w-3.5 h-3.5 text-indigo-500" />
               Kubernetes Namespace & Service
             </label>
@@ -225,12 +237,12 @@ export default function ConfigForm({ config, onChange, onReset }: ConfigFormProp
                 placeholder="namespace"
                 value={config.namespace}
                 onChange={(e) => onChange({ namespace: e.target.value })}
-                className="bg-white border border-slate-300 rounded-xl px-3 py-1.8 text-xs text-slate-800 font-mono focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/10"
+                className="bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 font-mono focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/10"
               />
               <select
                 value={config.serviceType}
                 onChange={(e) => onChange({ serviceType: e.target.value as any })}
-                className="bg-white border border-slate-300 rounded-xl px-2 py-1.8 text-xs text-slate-850 focus:border-indigo-500 focus:outline-none"
+                className="bg-white border border-slate-300 rounded-xl px-2 py-2 text-xs text-slate-800 focus:border-indigo-500 focus:outline-none"
               >
                 <option value="ClusterIP">ClusterIP (Internal)</option>
                 <option value="LoadBalancer">LoadBalancer (External)</option>
@@ -241,7 +253,7 @@ export default function ConfigForm({ config, onChange, onReset }: ConfigFormProp
 
         {/* SECTION 5: Storage Selection */}
         <div className="space-y-2">
-          <label className="text-xs font-bold tracking-wider text-slate-505 uppercase flex items-center gap-1.5">
+          <label className="text-xs font-bold tracking-wider text-slate-500 uppercase flex items-center gap-1.5">
             <Database className="w-3.5 h-3.5 text-indigo-500" />
             Weights Storage Type
           </label>
@@ -310,7 +322,7 @@ export default function ConfigForm({ config, onChange, onReset }: ConfigFormProp
                 placeholder="my-gke-nemotron-weights"
                 value={config.gcsBucketName}
                 onChange={(e) => onChange({ gcsBucketName: e.target.value })}
-                className="bg-white border border-slate-300 rounded-lg px-3 py-1.8 text-slate-800 font-mono focus:border-indigo-555 focus:outline-none"
+                className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800 font-mono focus:border-indigo-500 focus:outline-none"
               />
               <span className="text-[10px] text-slate-500 mt-1 flex items-center gap-1 leading-normal font-medium font-mono">
                 <Info className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
@@ -322,7 +334,7 @@ export default function ConfigForm({ config, onChange, onReset }: ConfigFormProp
 
         {/* SECTION 6: Secrets & Identity Checklist */}
         <div className="space-y-2">
-          <label className="text-xs font-bold tracking-wider text-slate-505 uppercase flex items-center gap-1.5">
+          <label className="text-xs font-bold tracking-wider text-slate-500 uppercase flex items-center gap-1.5">
             <Key className="w-3.5 h-3.5 text-indigo-500" />
             Security & Identity Options
           </label>
@@ -371,6 +383,21 @@ export default function ConfigForm({ config, onChange, onReset }: ConfigFormProp
                 <span>Enable Google Workload Identity Setup</span>
                 <span className="text-[10px] text-slate-500 leading-normal mt-0.5 font-normal">
                   Inject secure GCP IAM permissions directly into Kubernetes ServiceAccounts to speak safely with metadata.
+                </span>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-2.5 text-xs text-slate-700 font-semibold cursor-pointer select-none border-t border-slate-200/60 pt-2.5">
+              <input
+                type="checkbox"
+                checked={config.enableScaling}
+                onChange={(e) => onChange({ enableScaling: e.target.checked })}
+                className="mt-0.5 rounded text-indigo-600 bg-white border-slate-300 focus:ring-indigo-500/20"
+              />
+              <div className="flex flex-col mt-[-2px]">
+                <span>Emit HPA and PodDisruptionBudget</span>
+                <span className="text-[10px] text-slate-500 leading-normal mt-0.5 font-normal">
+                  Generate a CPU-based HorizontalPodAutoscaler (1-4 replicas) and a PDB with minAvailable=1 for production resilience.
                 </span>
               </div>
             </label>

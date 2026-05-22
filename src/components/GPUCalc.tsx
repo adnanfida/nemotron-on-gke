@@ -12,11 +12,12 @@ export default function GPUCalc({ config }: GPUCalcProps) {
   const singleGpuVram = getGPUVram(config.gpuType);
   const totalVram = singleGpuVram * config.gpuCount;
   
-  // Model size requirements in GB
-  // Weights size, but standard KV cache & activation needs extra margin in practice.
-  // Generally, we need:
-  // - Nemotron 8B (16B weight in FP16) needs about ~20GB. Recommends at least 24GB.
-  // - Llama 70B (140GB weights in FP16) needs about ~160GB. Recommends at least 160-192GB.
+  // Model size requirements in GB. modelInfo.size is the weight footprint
+  // (~2 * params for BF16, ~1 * params for FP8, ~0.5 * params for NVFP4).
+  // Plus 25% headroom below for KV cache, activations, and batch buffers.
+  // Sanity check examples:
+  // - Llama-3.1-Nemotron Nano 8B (BF16, ~16GB weights) -> ~20GB, fits on one L4 (24GB).
+  // - Llama-3.1-Nemotron 70B Instruct (BF16, ~140GB)   -> ~175GB, needs 2x A100 80GB or 1x H100 + offload.
   const weightsSize = modelInfo.size;
   const recommendedVram = weightsSize * 1.25; // 25% overhead for KV cache, batches.
 
@@ -43,7 +44,7 @@ export default function GPUCalc({ config }: GPUCalcProps) {
           </span>
         )}
         {status === "tight" && (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-705 border border-amber-200">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
             <AlertTriangle className="w-3.5 h-3.5 text-amber-600" /> Tight Fit (VRAM Limited)
           </span>
         )}
@@ -94,12 +95,12 @@ export default function GPUCalc({ config }: GPUCalcProps) {
             </p>
           )}
           {status === "tight" && (
-            <p className="text-amber-805 leading-relaxed font-sans">
+            <p className="text-amber-800 leading-relaxed font-sans">
               <strong>Caution Active:</strong> The weights will load, but leaving sparse KV allocation buffers can trigger OOM errors during concurrent context loads. Set smaller token context sizes or scale from 1 to 2 GPUs.
             </p>
           )}
           {status === "optimal" && (
-            <p className="text-emerald-805 leading-relaxed font-sans">
+            <p className="text-emerald-800 leading-relaxed font-sans">
               <strong>Operational Green:</strong> VRAM overhead is comfortable. The selected {config.gpuCount}x {config.gpuType.toUpperCase()} node provides ample workspace to scale concurrency and support high token sequences!
             </p>
           )}

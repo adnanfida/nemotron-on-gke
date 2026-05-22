@@ -41,7 +41,7 @@ export default function CodeViewer({ files }: CodeViewerProps) {
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-205 shadow-sm overflow-hidden flex flex-col h-[680px]">
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[680px]">
       {/* File listing header - beautiful Light theme tab bar */}
       <div className="bg-slate-50 border-b border-slate-200 p-2.5 flex flex-wrap items-center justify-between gap-2.5">
         <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto tab-container scrollbar-none">
@@ -49,9 +49,9 @@ export default function CodeViewer({ files }: CodeViewerProps) {
             <button
               key={file.name}
               onClick={() => setActiveTabIdx(idx)}
-              className={`flex items-center gap-1.5 px-3 py-1.8 text-xs font-mono rounded-lg border transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-mono rounded-lg border transition-all ${
                 activeTabIdx === idx
-                  ? "bg-indigo-650 text-white border-indigo-650 shadow-sm font-semibold"
+                  ? "bg-indigo-600 text-white border-indigo-600 shadow-sm font-semibold"
                   : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900"
               }`}
             >
@@ -63,7 +63,7 @@ export default function CodeViewer({ files }: CodeViewerProps) {
 
         <button
           onClick={downloadAll}
-          className="flex items-center gap-1.5 px-3.5 py-1.8 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+          className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
           title="Download all files bundled as a single file"
         >
           <Download className="w-3.5 h-3.5" />
