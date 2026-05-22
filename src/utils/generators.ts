@@ -34,6 +34,32 @@ export function getGPUDomainName(gpuType: string): string {
   }
 }
 
+// Node vCPU/memory totals for each (gpuType, gpuCount). Values are the
+// raw machine-type capacity; getPodResources() trims headroom from these
+// for the pod's CPU/memory requests so daemonsets and the GCS-FUSE sidecar
+// have room to schedule.
+const NODE_CAPACITY: Record<string, Record<number, [number, number]>> = {
+  "nvidia-l4":          { 1: [12, 48],  2: [24, 96],  4: [48, 192], 8: [96, 384] },
+  "nvidia-a100-40gb":   { 1: [12, 85],  2: [24, 170], 4: [48, 340], 8: [96, 680] },
+  "nvidia-a100-80gb":   { 1: [12, 170], 2: [24, 340], 4: [48, 680], 8: [96, 1360] },
+  "nvidia-h100-80gb":   { 1: [26, 234], 2: [52, 468], 4: [104, 936], 8: [208, 1872] },
+  "nvidia-t4":          { 1: [4, 15],   2: [8, 30],   4: [16, 60],  8: [32, 120] },
+};
+
+// Reserve 2 vCPU + 6Gi of memory for kube-system, CSI drivers, and the
+// gcsfuse sidecar so the LLM pod can actually schedule.
+const CPU_HEADROOM = 2;
+const MEM_HEADROOM_GI = 6;
+
+export function getPodResources(gpuType: string, gpuCount: number): { cpu: number; memoryGi: number } {
+  const node = NODE_CAPACITY[gpuType]?.[gpuCount];
+  if (!node) return { cpu: 8, memoryGi: 32 };
+  return {
+    cpu: Math.max(node[0] - CPU_HEADROOM, 1),
+    memoryGi: Math.max(node[1] - MEM_HEADROOM_GI, 8),
+  };
+}
+
 export function getMachineTypeRecommendation(gpuType: string, gpuCount: number): string {
   switch (gpuType) {
     case "nvidia-l4":
@@ -225,6 +251,11 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
         - name: cache-volume
           mountPath: /data`;
   } else if (config.storageType === "gcs-fuse") {
+    // The 'gke-gcsfuse-cache' emptyDir is the name the sidecar expects for
+    // its file cache. file-cache:max-size-mb:-1 lets the cache grow to fill
+    // the volume. metadata-cache:ttl-secs:60 helps cold-start latency on
+    // large model directories. See:
+    //   https://cloud.google.com/storage/docs/cloud-storage-fuse/file-cache
     volumesBlock = `      volumes:
       - name: gcs-bucket
         csi:
@@ -232,7 +263,11 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
           readOnly: false
           volumeAttributes:
             bucketName: "${config.gcsBucketName || "my-gke-nemotron-weights"}"
-            mountOptions: "implicit-dirs"`;
+            mountOptions: "implicit-dirs,file-cache:max-size-mb:-1,metadata-cache:ttl-secs:60"
+      - name: gke-gcsfuse-cache
+        emptyDir:
+          medium: Memory
+          sizeLimit: 64Gi`;
     volumeMountsBlock = `        volumeMounts:
         - name: gcs-bucket
           mountPath: /data`;
@@ -261,8 +296,9 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
   if (config.storageType === "gcs-fuse") {
     annotationsBlock = `      annotations:
         gke-gcsfuse/volumes: "true"
-        gke-gcsfuse/cpu-limit: "3"
-        gke-gcsfuse/memory-limit: "6Gi"`;
+        gke-gcsfuse/cpu-limit: "4"
+        gke-gcsfuse/memory-limit: "8Gi"
+        gke-gcsfuse/ephemeral-storage-limit: "64Gi"`;
   }
 
   // serviceAccountName line - set when WI is on OR GCS-FUSE is in use
@@ -378,9 +414,9 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
       # No manual tolerations or nodeSelectors needed.`;
   }
 
-  // CPU and Memory baseline requests
-  const cpuCount = config.gpuCount * 12;
-  const memCount = config.gpuCount * 48; // GKE recommendations is large ram for gpu machines
+  // CPU/memory requests derived from the actual machine-type capacity
+  // for this (gpuType, gpuCount), minus headroom for daemonsets/sidecars.
+  const { cpu: cpuCount, memoryGi: memCount } = getPodResources(config.gpuType, config.gpuCount);
 
   const manifest = `apiVersion: apps/v1
 kind: Deployment
@@ -406,12 +442,12 @@ ${containerPorts}
         resources:
           # CPU & Memory guidelines optimized for model weights loaded in VRAM
           requests:
-            cpu: "${cpuCount || 8}"
-            memory: "${memCount || 32}Gi"
+            cpu: "${cpuCount}"
+            memory: "${memCount}Gi"
             nvidia.com/gpu: "${resourceGpus}"
           limits:
-            cpu: "${cpuCount || 8}"
-            memory: "${memCount || 32}Gi"
+            cpu: "${cpuCount}"
+            memory: "${memCount}Gi"
             nvidia.com/gpu: "${resourceGpus}"
 ${envVars}
 ${volumeMountsBlock}
