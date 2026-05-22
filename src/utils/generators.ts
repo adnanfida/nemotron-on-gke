@@ -77,12 +77,22 @@ export function getMachineTypeRecommendation(gpuType: string, gpuCount: number):
   }
 }
 
-// NIM container catalog. Only models with a known nvcr.io/nim image are
-// listed. For anything else the deployment is emitted with a warning and
+// NIM container catalog. Paths verified May 2026 against build.nvidia.com
+// and the NVIDIA developer forums. For modelTypes not in this map the
+// deployment is emitted with a placeholder image + warning comment and
 // the UI surfaces a banner advising the user to switch to vLLM or Triton.
+//
+// Where a single NIM serves multiple precision variants via internal
+// profiles (e.g. Nemotron-3 Nano 30B-A3B), both modelType keys point at
+// the same image - the container selects BF16/FP8 at startup.
 const NIM_CATALOG: Partial<Record<GKEConfig["modelType"], string>> = {
-  "llama-3-1-nemotron-70b": "nvcr.io/nim/nvidia/llama-3.1-nemotron-70b-instruct:latest",
-  "nemotron-3-nano-omni-30b-a3b": "nvcr.io/nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:latest",
+  "llama-3-1-nemotron-nano-8b":          "nvcr.io/nim/nvidia/llama-3.1-nemotron-nano-8b-v1:latest",
+  "llama-3-1-nemotron-super-49b":        "nvcr.io/nim/nvidia/llama-3.3-nemotron-super-49b-v1:latest",
+  "llama-3-1-nemotron-70b":              "nvcr.io/nim/nvidia/llama-3.1-nemotron-70b-instruct:latest",
+  "nemotron-3-nano-30b-a3b-bf16":        "nvcr.io/nim/nvidia/nemotron-3-nano:latest",
+  "nemotron-3-nano-30b-a3b-fp8":         "nvcr.io/nim/nvidia/nemotron-3-nano:latest",
+  "nemotron-3-nano-omni-30b-a3b":        "nvcr.io/nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:latest",
+  "nemotron-3-super-120b-a12b-nvfp4":    "nvcr.io/nim/nvidia/nemotron-3-super-120b-a12b:1.8.0-variant",
 };
 
 export function getNimImage(modelType: GKEConfig["modelType"]): { image: string; supported: boolean } {
