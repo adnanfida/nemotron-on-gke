@@ -326,6 +326,12 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
   const useKsa = config.enableWorkloadIdentity || config.storageType === "gcs-fuse";
   const serviceAccountLine = useKsa ? `      serviceAccountName: nemotron-sa\n` : "";
 
+  // imagePullSecrets - NIM containers live on nvcr.io which requires auth.
+  // deploy.sh creates the docker-registry secret 'nvcr-pull-secret' below.
+  const imagePullSecretsBlock = config.servingFramework === "nim"
+    ? `      imagePullSecrets:\n      - name: nvcr-pull-secret\n`
+    : "";
+
   // Image & Startup commands based on serving framework
   let containerImage = "";
   let containerArgs = "";
@@ -454,7 +460,7 @@ spec:
     metadata:
       labels:
         app: nemotron-service\n${annotationsBlock ? annotationsBlock + "\n" : ""}    spec:
-${serviceAccountLine}      containers:
+${serviceAccountLine}${imagePullSecretsBlock}      containers:
       - name: llm-engine
         image: ${containerImage}
 ${containerArgs}
@@ -665,7 +671,20 @@ kubectl apply -f gke-serviceaccount.yaml
   }
 
   let secretsShellBlock = "";
-  if (config.useHuggingFaceToken || config.useNGCKey) {
+  if (config.useHuggingFaceToken || config.useNGCKey || config.servingFramework === "nim") {
+    // For NIM workloads we need TWO secrets: nemotron-secrets (env-var
+    // injection for NGC_API_KEY/HF_TOKEN) AND nvcr-pull-secret (docker
+    // registry auth so the kubelet can pull from nvcr.io). Without the
+    // pull secret NIM pods ErrImagePull regardless of NGC_API_KEY.
+    const pullSecretBlock = config.servingFramework === "nim" ? `
+echo "Creating docker-registry pull secret for nvcr.io..."
+kubectl create secret docker-registry nvcr-pull-secret \\
+    --namespace=${config.namespace || "default"} \\
+    --docker-server=nvcr.io \\
+    --docker-username='\$oauthtoken' \\
+    --docker-password="YOUR_NVIDIA_NGC_API_KEY_HERE" \\
+    --dry-run=client -o yaml | kubectl apply -f -
+` : "";
     secretsShellBlock = `
 # ----------------------------------------------------
 # Define secrets (Hugging Face / NGC)
@@ -676,7 +695,7 @@ kubectl create secret generic nemotron-secrets \\
     ${config.useHuggingFaceToken ? "--from-literal=hf-token=\"YOUR_HF_TOKEN_HERE\" \\" : ""}
     ${config.useNGCKey || config.servingFramework === "nim" ? "--from-literal=ngc-api-key=\"YOUR_NVIDIA_NGC_API_KEY_HERE\" \\" : ""}
     --dry-run=client -o yaml | kubectl apply -f -
-`;
+${pullSecretBlock}`;
   }
 
   return `#!/bin/bash
