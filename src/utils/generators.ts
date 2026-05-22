@@ -45,7 +45,7 @@ export function getMachineTypeRecommendation(gpuType: string, gpuCount: number):
     case "nvidia-h100-80gb":
       return `a3-highgpu-${gpuCount}g`;
     case "nvidia-t4":
-      return `n1-standard-${gpuCount * 4}-gput4-${gpuCount}`;
+      return `n1-standard-${gpuCount * 4}`;
     default:
       return "g2-standard-12";
   }
@@ -124,7 +124,6 @@ export function getModelInfo(config: GKEConfig): { id: string; size: number; nam
 
 export function generateAllFiles(config: GKEConfig): GeneratedFile[] {
   const modelInfo = getModelInfo(config);
-  const totalVram = getGPUVram(config.gpuType) * config.gpuCount;
   const isAutopilot = config.gkeType.trim() === "autopilot";
   
   const files: GeneratedFile[] = [];
@@ -186,7 +185,6 @@ export function generateAllFiles(config: GKEConfig): GeneratedFile[] {
 
 function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size: number; name: string }, isAutopilot: boolean): string {
   const isNim = config.servingFramework === "nim";
-  const isTriton = config.servingFramework === "triton";
   const isVllm = config.servingFramework === "vllm";
   
   const gpuLabel = getGPUDomainName(config.gpuType);
@@ -221,7 +219,8 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
     volumesBlock = `      volumes:
       - name: cache-volume
         emptyDir:
-          medium: Memory // Set to Memory only for small weights or high RAM machines`;
+          # Set medium to Memory only for small weights or high-RAM machines
+          medium: Memory`;
     if (config.gpuType === "nvidia-l4") {
       volumesBlock = `      volumes:
       - name: cache-volume
@@ -255,10 +254,17 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
   let envVars = "";
 
   if (isVllm) {
-    containerImage = "vllm/vllm-openai:v0.4.3"; // standard compatible vllm image
-    const vParam = `--model ${modelInfo.id} --tensor-parallel-size ${config.gpuCount} --download-dir /data --port 8000`;
+    // v0.12 release tag recommended by the vLLM Nemotron recipes
+    containerImage = "vllm/vllm-openai:deploy";
     containerArgs = `        args:
-        - "${vParam}"`;
+        - "--model"
+        - "${modelInfo.id}"
+        - "--tensor-parallel-size"
+        - "${config.gpuCount}"
+        - "--download-dir"
+        - "/data"
+        - "--port"
+        - "8000"`;
     containerPorts = `        ports:
         - containerPort: 8000
           name: api`;
@@ -307,10 +313,11 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
   } else {
     // Triton Inference Server
     containerImage = "nvcr.io/nvidia/tritonserver:24.03-py3";
-    containerArgs = `        args:
-        - "tritonserver"
+    containerArgs = `        command: ["tritonserver"]
+        args:
         - "--model-repository=/data/models"
-        - "--allow-gpu-metrics=true"`;
+        - "--allow-gpu-metrics=true"
+        - "--metrics-port=8002"`;
     containerPorts = `        ports:
         - containerPort: 8000
           name: http-api
@@ -572,12 +579,12 @@ kubectl get pods -n \$NAMESPACE --watch
 }
 
 function generateTestScript(config: GKEConfig): string {
-  const path = config.servingFramework === "triton" ? "/v1/models" : "/v1/chat/completions";
   const port = "80";
-  
+
   let payloadStr = "";
   if (config.servingFramework === "triton") {
-    payloadStr = `curl http://\$SERVICE_IP:${port}/v1/models/nemotron`;
+    // Triton speaks the KServe v2 protocol, not the OpenAI v1 schema
+    payloadStr = `curl http://\$SERVICE_IP:${port}/v2/models/nemotron/ready`;
   } else {
     // OpenAI specification standard formats
     payloadStr = `curl -X POST http://\$SERVICE_IP:${port}/v1/chat/completions \\
