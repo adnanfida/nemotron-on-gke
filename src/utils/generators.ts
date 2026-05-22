@@ -180,15 +180,9 @@ export function generateAllFiles(config: GKEConfig): GeneratedFile[] {
     content: generateServiceYaml(config)
   });
 
-  // 3. secrets.yaml
-  if (config.useHuggingFaceToken || config.useNGCKey) {
-    files.push({
-      name: "gke-secrets.yaml",
-      language: "yaml",
-      description: "Kubernetes Secret template to hold Hugging Face Hub token or Nvidia NGC credentials securely.",
-      content: generateSecretsYaml(config)
-    });
-  }
+  // 3. (no secrets.yaml) - secrets are created by deploy.sh via
+  // 'kubectl create secret generic --from-literal=...' so the API tokens
+  // never land in a YAML file that might get committed.
 
   // 4. pv-claim.yaml or Storage-spec (PVC)
   if (config.storageType === "pvc") {
@@ -567,25 +561,6 @@ metadata:
     # workloadIdentityUser binding via deploy.sh, then replace the email below.
     iam.gke.io/gcp-service-account: nemotron-gsa@YOUR_PROJECT_ID.iam.gserviceaccount.com
 `;
-}
-
-function generateSecretsYaml(config: GKEConfig): string {
-  let dataLines = "";
-  if (config.useHuggingFaceToken) {
-    dataLines += `  # base64 encoded token: echo -n "YOUR_HF_TOKEN" | base64\n  hf-token: cGxhY2Vob2xkZXJfdG9rZW5fZXhhbXBsZQ== # Replace with real base64 value\n`;
-  }
-  if (config.useNGCKey || config.servingFramework === "nim") {
-    dataLines += `  # base64 encoded API Key: echo -n "YOUR_NGC_KEY" | base64\n  ngc-api-key: cGxhY2Vob2xkZXJfbmdjX2tleV9leGFtcGxl # Replace with real base64 value\n`;
-  }
-
-  return `apiVersion: v1
-kind: Secret
-metadata:
-  name: nemotron-secrets
-  namespace: ${config.namespace || "default"}
-type: Opaque
-data:
-${dataLines}`;
 }
 
 function generatePvcYaml(config: GKEConfig): string {
