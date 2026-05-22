@@ -12,91 +12,17 @@ Three diagrams, each answering one question. The app's job is **generation**, no
 
 ### A. What this app actually does
 
-```mermaid
-flowchart LR
-    cfg["GKEConfig<br/>(form input)"] --> fn(["generateAllFiles()"])
-
-    fn --> dep["gke-deployment.yaml"]
-    fn --> svc["gke-service.yaml"]
-    fn --> sa["gke-serviceaccount.yaml<br/><i>if WI or GCS-FUSE</i>"]
-    fn --> pvc["gke-pvc.yaml<br/><i>if SSD</i>"]
-    fn --> hpa["gke-hpa.yaml<br/><i>if scaling</i>"]
-    fn --> pdb["gke-pdb.yaml<br/><i>if scaling</i>"]
-    fn --> sh["deploy.sh"]
-    fn --> test["test-inference.sh"]
-
-    sh -.->|"operator runs<br/>(not the app)"| gke[(GKE cluster)]
-
-    classDef opt stroke-dasharray:4 4
-    class sa,pvc,hpa,pdb opt
-```
+![GKEConfig form feeds generateAllFiles(), which emits eight deployment artifacts; the operator then runs deploy.sh against GKE](docs/img/arch-a-generator.jpeg)
 
 ### B. What runs on GKE after `bash deploy.sh`
 
 Required pieces solid; optional pieces dashed (only emitted when the relevant toggle is set or storage is GCS-FUSE).
 
-```mermaid
-flowchart TB
-    client(["Client"]) -->|"REST :8000"| svc[/"Service<br/>(LoadBalancer or ClusterIP)"/]
-    svc --> pod["Inference Pod<br/>(vLLM / NIM / Triton)<br/>+ startup / readiness / liveness probes"]
-    pod -.-> gpu["NVIDIA L4 / A100 / H100<br/><i>driver via node DaemonSet</i>"]
-
-    pod -->|"HF_TOKEN, NGC_API_KEY<br/>(envFrom secretKeyRef)"| sec1[/"nemotron-secrets<br/>(generic Secret)"/]
-    pod -.->|"NIM image pull"| sec2[/"nvcr-pull-secret<br/>(docker-registry Secret)"/]
-
-    pod -.->|"serviceAccountName"| ksa[/"ServiceAccount<br/>nemotron-sa"/]
-    ksa -.->|"workloadIdentityUser"| gsa[("GCP IAM SA<br/>nemotron-gsa")]
-
-    subgraph store ["Weight storage — one of three"]
-        direction LR
-        ed["emptyDir<br/>(ephemeral)"]
-        pvcs["PVC<br/>premium-rwo SSD"]
-        gcs["GCS-FUSE CSI<br/>+ file-cache sidecar"]
-    end
-    pod --> store
-
-    hpa[(HPA)] -.->|"if scaling=on"| pod
-    pdb[(PDB)] -.->|"if scaling=on"| pod
-
-    classDef nv fill:#76b900,stroke:#3f6b00,color:#fff
-    classDef k8s fill:#326ce5,stroke:#1a3e87,color:#fff
-    classDef gcp fill:#ea4335,stroke:#a52a2a,color:#fff
-    classDef opt stroke-dasharray:5 5
-    class gpu nv
-    class svc,pod,ksa,sec1,sec2,ed,pvcs k8s
-    class gsa,gcs gcp
-    class sec2,ksa,gsa,hpa,pdb,gcs opt
-```
+![GKE cluster with Inference Pod (vLLM/NIM/Triton) on L4/A100/H100, storage options emptyDir/PVC/GCS-FUSE, nemotron-secrets + nvcr-pull-secret, and KSA linked to GCP IAM GSA via Workload Identity](docs/img/arch-b-runtime.jpeg)
 
 ### C. What `deploy.sh` actually does, in order
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor op as Operator
-    participant g as gcloud
-    participant k as kubectl
-    participant gke as GKE cluster
-
-    op->>g: clusters create [+ --workload-pool, --addons=GcsFuseCsiDriver on Standard]
-    g->>gke: cluster + GPU node pool
-    op->>g: iam service-accounts create nemotron-gsa<br/>+ add-iam-policy-binding workloadIdentityUser
-    g-->>gke: GSA bound to KSA "ns/nemotron-sa"
-
-    alt Standard cluster
-        op->>k: apply nvidia-driver-installer DaemonSet
-        k->>gke: NVIDIA drivers on every GPU node
-    end
-
-    op->>k: create secret generic nemotron-secrets (HF, NGC)
-    alt NIM framework
-        op->>k: create secret docker-registry nvcr-pull-secret
-    end
-    op->>k: apply ServiceAccount, Deployment, Service [, PVC, HPA, PDB]
-    k->>gke: workloads scheduled
-    gke->>gke: startupProbe polls /health (up to 30 min)
-    gke-->>op: pod Ready → Service routes traffic
-```
+![deploy.sh drives gcloud, kubectl, and sed against the GKE cluster to provision the Service, Secret, Pod, and ServiceAccount over a 10-15 minute window](docs/img/arch-c-deploy.jpeg)
 
 ---
 
