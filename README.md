@@ -8,86 +8,94 @@ An interactive configuration UI that generates starter Google Kubernetes Engine 
 
 ## 🏛️ GKE Deployment Architecture
 
-The generated manifests orchestrate an industry-standard, cloud-native architecture optimized for serving heavy weights on GKE with clean separation of concerns:
+Three diagrams, each answering one question. The app's job is **generation**, not deployment — diagrams A and C clarify the separation.
 
-```
-                                      [ INGRESS TRF ]
-                                             │
-                                             ▼
-                                  ┌──────────────────────┐
-                                  │   Kubernetes Service │
-                                  │ (LoadBalancer/Cluster)│
-                                  └──────────┬───────────┘
-                                             │ (Port 8000/80)
-                                             ▼
-                               ┌───────────────────────────┐
-                               │ Kubernetes Namespace      │
-                               │                           │
-                               │  ┌─────────────────────┐  │   ┌───────────────────────┐
-                               │  │  Inference Pod(s)   │  │   │  Hugging Face / NGC   │
-                               │  │                     ◄──┼───┤   Security Secrets    │
-                               │  │ ┌─────────────────┐ │  │   │   (K8s Secret Refs)   │
-                               │  │ │ Serving Engine │ │  │   └───────────────────────┘
-                               │  │ │ (vLLM/NIM/Trtn)│ │  │
-                               │  │ └────────┬────────┘ │  │   ┌───────────────────────┐
-                               │  │          │          │  │   │   Workload Identity   │
-                               │  │ ┌────────▼────────┐ │  │   │   ServiceAccount      │
-                               │  │ │ CUDA / Driver   │ │  ├───►    (GCP IAM Bind)     │
-                               │  │ └────────┬────────┘ │  │   └───────────────────────┘
-                               │  │          │          │  │
-                               │  │ ┌────────▼────────┐ │  │
-                               │  │ │ Accelerator(s)  │ │  │
-                               │  │ │ (L4, A100, H100)│ │  │
-                               │  │ └─────────────────┘ │  │
-                               │  └──────────┬──────────┘  │
-                               │             │ (Mount Paths)
-                               └─────────────┼─────────────┘
-                                             │
-                   ┌─────────────────────────┼─────────────────────────┐
-                   ▼                         ▼                         ▼
-         ┌──────────────────┐      ┌──────────────────┐      ┌──────────────────┐
-         │     EmptyDir     │      │  Persistent SSD  │      │  GCS FUSE Mount  │
-         │ Ephemeral Storage│      │  (premium-rwo)   │      │ Cloud Storage CSI│
-         └──────────────────┘      └──────────────────┘      └──────────────────┘
-```
-
-### 🧬 Logical Infrastructure Topology (Mermaid)
+### A. What this app actually does
 
 ```mermaid
-graph TD
-    classDef k8s fill:#326ce5,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef gcp fill:#ea4335,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef gpu fill:#76b900,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef storage fill:#ff9900,stroke:#fff,stroke-width:2px,color:#fff;
+flowchart LR
+    cfg["GKEConfig<br/>(form input)"] --> fn(["generateAllFiles()"])
 
-    client[Client Request] -->|REST/gRPC| service[K8s Service: LoadBalancer]
-    
-    subgraph GKE_Node_Pool [Google Kubernetes Engine Node Pool]
-        service -->|Proxy| Pod[LLM Inference Pod]
-        
-        subgraph EngineContainer [Serving Container]
-            Pod --> Engine[Inference Engine: vLLM / NIM / Triton]
-        end
-        
-        subgraph GPU_Resources [NVIDIA System Interface]
-            Engine -->|CUDA driver| GPU["NVIDIA GPUs: L4 / A100 / H100"]
-        end
+    fn --> dep["gke-deployment.yaml"]
+    fn --> svc["gke-service.yaml"]
+    fn --> sa["gke-serviceaccount.yaml<br/><i>if WI or GCS-FUSE</i>"]
+    fn --> pvc["gke-pvc.yaml<br/><i>if SSD</i>"]
+    fn --> hpa["gke-hpa.yaml<br/><i>if scaling</i>"]
+    fn --> pdb["gke-pdb.yaml<br/><i>if scaling</i>"]
+    fn --> sh["deploy.sh"]
+    fn --> test["test-inference.sh"]
+
+    sh -.->|"operator runs<br/>(not the app)"| gke[(GKE cluster)]
+
+    classDef opt stroke-dasharray:4 4
+    class sa,pvc,hpa,pdb opt
+```
+
+### B. What runs on GKE after `bash deploy.sh`
+
+Required pieces solid; optional pieces dashed (only emitted when the relevant toggle is set or storage is GCS-FUSE).
+
+```mermaid
+flowchart TB
+    client(["Client"]) -->|"REST :8000"| svc[/"Service<br/>(LoadBalancer or ClusterIP)"/]
+    svc --> pod["Inference Pod<br/>(vLLM / NIM / Triton)<br/>+ startup / readiness / liveness probes"]
+    pod -.-> gpu["NVIDIA L4 / A100 / H100<br/><i>driver via node DaemonSet</i>"]
+
+    pod -->|"HF_TOKEN, NGC_API_KEY<br/>(envFrom secretKeyRef)"| sec1[/"nemotron-secrets<br/>(generic Secret)"/]
+    pod -.->|"NIM image pull"| sec2[/"nvcr-pull-secret<br/>(docker-registry Secret)"/]
+
+    pod -.->|"serviceAccountName"| ksa[/"ServiceAccount<br/>nemotron-sa"/]
+    ksa -.->|"workloadIdentityUser"| gsa[("GCP IAM SA<br/>nemotron-gsa")]
+
+    subgraph store ["Weight storage — one of three"]
+        direction LR
+        ed["emptyDir<br/>(ephemeral)"]
+        pvcs["PVC<br/>premium-rwo SSD"]
+        gcs["GCS-FUSE CSI<br/>+ file-cache sidecar"]
+    end
+    pod --> store
+
+    hpa[(HPA)] -.->|"if scaling=on"| pod
+    pdb[(PDB)] -.->|"if scaling=on"| pod
+
+    classDef nv fill:#76b900,stroke:#3f6b00,color:#fff
+    classDef k8s fill:#326ce5,stroke:#1a3e87,color:#fff
+    classDef gcp fill:#ea4335,stroke:#a52a2a,color:#fff
+    classDef opt stroke-dasharray:5 5
+    class gpu nv
+    class svc,pod,ksa,sec1,sec2,ed,pvcs k8s
+    class gsa,gcs gcp
+    class sec2,ksa,gsa,hpa,pdb,gcs opt
+```
+
+### C. What `deploy.sh` actually does, in order
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor op as Operator
+    participant g as gcloud
+    participant k as kubectl
+    participant gke as GKE cluster
+
+    op->>g: clusters create [+ --workload-pool, --addons=GcsFuseCsiDriver on Standard]
+    g->>gke: cluster + GPU node pool
+    op->>g: iam service-accounts create nemotron-gsa<br/>+ add-iam-policy-binding workloadIdentityUser
+    g-->>gke: GSA bound to KSA "ns/nemotron-sa"
+
+    alt Standard cluster
+        op->>k: apply nvidia-driver-installer DaemonSet
+        k->>gke: NVIDIA drivers on every GPU node
     end
 
-    subgraph Storage_Options [Weight Storage Architectures]
-        Pod -->|Host Mount| EmptyDir[EmptyDir Cache]
-        Pod -->|PersistentVolumeClaim| SSD_PVC[SSD Persistent Volume Claim]
-        Pod -->|gcsfuse CSI Driver| GCS_Bucket[Google Cloud Storage Bucket]
+    op->>k: create secret generic nemotron-secrets (HF, NGC)
+    alt NIM framework
+        op->>k: create secret docker-registry nvcr-pull-secret
     end
-
-    subgraph IAM_Sec_Identity [Identity & Secrets Federation]
-        Pod -->|Auth Token| HF_NGC_Secrets[K8s Secrets: HuggingFace / NGC Key]
-        Pod -->|IAM Binding| Workload_Identity[GKE Workload Identity]
-    end
-
-    class service,Pod,Engine,HF_NGC_Secrets,SSD_PVC,EmptyDir k8s;
-    class GCS_Bucket,Workload_Identity gcp;
-    class GPU,GPU_Resources gpu;
+    op->>k: apply ServiceAccount, Deployment, Service [, PVC, HPA, PDB]
+    k->>gke: workloads scheduled
+    gke->>gke: startupProbe polls /health (up to 30 min)
+    gke-->>op: pod Ready → Service routes traffic
 ```
 
 ---
