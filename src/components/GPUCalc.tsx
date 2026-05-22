@@ -99,7 +99,7 @@ export default function GPUCalc({ config }: GPUCalcProps) {
             </p>
           )}
           {status === "optimal" && (
-            <p className="text-emerald-805 leading-relaxed font-sans">
+            <p className="text-emerald-800 leading-relaxed font-sans">
               <strong>Operational Green:</strong> VRAM overhead is comfortable. The selected {config.gpuCount}x {config.gpuType.toUpperCase()} node provides ample workspace to scale concurrency and support high token sequences!
             </p>
           )}

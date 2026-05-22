@@ -15,7 +15,7 @@ export interface GKEConfig {
   servingFramework: "vllm" | "nim" | "triton";
   gpuType: "nvidia-l4" | "nvidia-a100-40gb" | "nvidia-a100-80gb" | "nvidia-h100-80gb" | "nvidia-t4";
   gpuCount: number;
-  gkeType: " autopilot" | "standard";
+  gkeType: "autopilot" | "standard";
   storageType: "gcs-fuse" | "pvc" | "empty-dir";
   pvcSize: number; // in GB
   gcsBucketName: string;

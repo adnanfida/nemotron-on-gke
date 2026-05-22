@@ -124,7 +124,7 @@ export function getModelInfo(config: GKEConfig): { id: string; size: number; nam
 
 export function generateAllFiles(config: GKEConfig): GeneratedFile[] {
   const modelInfo = getModelInfo(config);
-  const isAutopilot = config.gkeType.trim() === "autopilot";
+  const isAutopilot = config.gkeType === "autopilot";
   
   const files: GeneratedFile[] = [];
 
