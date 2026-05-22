@@ -23,6 +23,7 @@ export default function App() {
     useHuggingFaceToken: true,
     useNGCKey: false,
     enableWorkloadIdentity: false,
+    enableScaling: false,
   });
 
   const [activePaneTab, setActivePaneTab] = useState<"blueprints" | "advisor">("blueprints");

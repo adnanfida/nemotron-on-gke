@@ -386,6 +386,21 @@ export default function ConfigForm({ config, onChange, onReset }: ConfigFormProp
                 </span>
               </div>
             </label>
+
+            <label className="flex items-start gap-2.5 text-xs text-slate-700 font-semibold cursor-pointer select-none border-t border-slate-200/60 pt-2.5">
+              <input
+                type="checkbox"
+                checked={config.enableScaling}
+                onChange={(e) => onChange({ enableScaling: e.target.checked })}
+                className="mt-0.5 rounded text-indigo-600 bg-white border-slate-300 focus:ring-indigo-500/20"
+              />
+              <div className="flex flex-col mt-[-2px]">
+                <span>Emit HPA and PodDisruptionBudget</span>
+                <span className="text-[10px] text-slate-500 leading-normal mt-0.5 font-normal">
+                  Generate a CPU-based HorizontalPodAutoscaler (1-4 replicas) and a PDB with minAvailable=1 for production resilience.
+                </span>
+              </div>
+            </label>
           </div>
         </div>
       </div>

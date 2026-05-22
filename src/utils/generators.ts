@@ -200,6 +200,22 @@ export function generateAllFiles(config: GKEConfig): GeneratedFile[] {
     });
   }
 
+  // 4a. HPA + PDB for production resilience (opt-in)
+  if (config.enableScaling) {
+    files.push({
+      name: "gke-hpa.yaml",
+      language: "yaml",
+      description: "HorizontalPodAutoscaler scaling 1-4 replicas on CPU. See comments for a GPU duty-cycle alternative.",
+      content: generateHpaYaml(config),
+    });
+    files.push({
+      name: "gke-pdb.yaml",
+      language: "yaml",
+      description: "PodDisruptionBudget keeping at least one inference pod available during node drains and upgrades.",
+      content: generatePdbYaml(config),
+    });
+  }
+
   // 4b. ServiceAccount (KSA) for Workload Identity.
   // Required whenever the pod needs to authenticate to GCP APIs - explicit
   // WI opt-in, or GCS-FUSE (which authenticates the bucket mount via WI).
@@ -488,6 +504,55 @@ spec:
     app: nemotron-service
   ports:
 ${ports}
+`;
+}
+
+function generateHpaYaml(config: GKEConfig): string {
+  return `apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nemotron-hpa
+  namespace: ${config.namespace || "default"}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nemotron-deployment
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  # For GPU duty-cycle scaling, install the Custom Metrics Stackdriver
+  # Adapter and uncomment:
+  # - type: External
+  #   external:
+  #     metric:
+  #       name: kubernetes.io|container|accelerator|duty_cycle
+  #       selector:
+  #         matchLabels:
+  #           resource.labels.namespace_name: ${config.namespace || "default"}
+  #     target:
+  #       type: AverageValue
+  #       averageValue: "70"
+`;
+}
+
+function generatePdbYaml(config: GKEConfig): string {
+  return `apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nemotron-pdb
+  namespace: ${config.namespace || "default"}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: nemotron-service
 `;
 }
 

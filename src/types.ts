@@ -25,6 +25,7 @@ export interface GKEConfig {
   useHuggingFaceToken: boolean;
   useNGCKey: boolean;
   enableWorkloadIdentity: boolean;
+  enableScaling: boolean;
 }
 
 export interface GeneratedFile {
