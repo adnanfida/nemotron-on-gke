@@ -6,6 +6,15 @@ interface ChatConsultantProps {
   config: GKEConfig;
 }
 
+// Render a string with **bold** spans as React nodes (no HTML injection).
+function renderBoldInline(text: string): React.ReactNode[] {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) => {
+    const m = part.match(/^\*\*(.+)\*\*$/);
+    return m ? <strong key={i}>{m[1]}</strong> : <React.Fragment key={i}>{part}</React.Fragment>;
+  });
+}
+
 export default function ChatConsultant({ config }: ChatConsultantProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -124,23 +133,19 @@ export default function ChatConsultant({ config }: ChatConsultantProps) {
               {m.sender === "ai" ? (
                 <div className="space-y-2 whitespace-pre-wrap">
                   {m.text.split("\n\n").map((para, pIdx) => {
-                    // Check if bullet point list
                     if (para.startsWith("* ") || para.startsWith("- ")) {
                       return (
                         <ul key={pIdx} className="list-disc pl-4 space-y-1.5 my-1.5 text-slate-700">
                           {para.split("\n").map((li, lIdx) => (
-                            <li key={lIdx}>{li.replace(/^[\s*-]+/, "").replace(/\*\*(.*?)\*\*/g, "$1")}</li>
+                            <li key={lIdx}>{renderBoldInline(li.replace(/^[\s*-]+/, ""))}</li>
                           ))}
                         </ul>
                       );
                     }
-                    const formatted = para.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
                     return (
-                      <p 
-                        key={pIdx} 
-                        dangerouslySetInnerHTML={{ __html: formatted }}
-                        className="text-slate-700 font-sans"
-                      />
+                      <p key={pIdx} className="text-slate-700 font-sans">
+                        {renderBoldInline(para)}
+                      </p>
                     );
                   })}
                 </div>

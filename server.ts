@@ -9,7 +9,7 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: "32kb" }));
 
 // Initialize server-side Gemini client with proper telemetry header
 const ai = new GoogleGenAI({
@@ -21,8 +21,47 @@ const ai = new GoogleGenAI({
   },
 });
 
+// Origin allowlist: dev defaults to localhost, prod must set ALLOWED_ORIGINS
+// (comma-separated). Browsers send Origin on cross-origin XHR; same-origin
+// requests omit it, so a missing Origin is also allowed.
+const allowedOrigins = new Set(
+  (process.env.ALLOWED_ORIGINS ?? "http://localhost:3000,http://127.0.0.1:3000")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean)
+);
+
+// Fixed-window per-IP rate limit, in-memory.
+// Reasonable for a single-instance dev/demo server; swap for Redis if you
+// scale out behind a load balancer.
+const RATE_WINDOW_MS = 60_000;
+const RATE_MAX = Number(process.env.RATE_LIMIT_PER_MINUTE ?? 20);
+const rateCounters = new Map<string, { count: number; resetAt: number }>();
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateCounters.get(ip);
+  if (!entry || entry.resetAt < now) {
+    rateCounters.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= RATE_MAX) return false;
+  entry.count += 1;
+  return true;
+}
+
 // Interactive GKE Deployment Assistant Proxy
 app.post("/api/chat", async (req, res) => {
+  const origin = req.headers.origin;
+  if (origin && !allowedOrigins.has(origin)) {
+    return res.status(403).json({ error: "Origin not allowed." });
+  }
+
+  const ip = (req.headers["x-forwarded-for"]?.toString().split(",")[0].trim()) || req.ip || "unknown";
+  if (!checkRateLimit(ip)) {
+    return res.status(429).json({ error: "Rate limit exceeded. Try again shortly." });
+  }
+
   try {
     const { prompt, config } = req.body;
 
