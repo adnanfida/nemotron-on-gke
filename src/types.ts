@@ -6,11 +6,11 @@ export interface GKEConfig {
     | "nemotron-3-nano-30b-a3b-fp8"
     | "nemotron-3-nano-omni-30b-a3b"
     | "nemotron-3-super-120b-a12b-nvfp4"
-    // Llama-3.1-Nemotron family (Llama backbone, NVIDIA-tuned)
-    | "llama-3-1-nemotron-nano-8b"
-    | "llama-3-1-nemotron-super-49b"
-    | "llama-3-1-nemotron-70b"
-    | "llama-3-1-nemotron-ultra-253b"
+    // Llama-Nemotron family (Llama backbone, NVIDIA-tuned)
+    | "llama-3-1-nemotron-nano-8b"      // Llama 3.1 base
+    | "llama-3-3-nemotron-super-49b"    // Llama 3.3 base
+    | "llama-3-1-nemotron-70b"          // Llama 3.1 base
+    | "llama-3-1-nemotron-ultra-253b"   // Llama 3.1 base
     | "custom";
   customModelId: string;
   servingFramework: "vllm" | "nim" | "triton";

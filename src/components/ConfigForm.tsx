@@ -19,7 +19,7 @@ export default function ConfigForm({ config, onChange, onReset }: ConfigFormProp
     { id: "nemotron-3-nano-omni-30b-a3b", label: "Nemotron-3 Nano Omni 30B-A3B", desc: "Text + image + video + audio reasoning" },
     { id: "nemotron-3-super-120b-a12b-nvfp4", label: "Nemotron-3 Super 120B-A12B (NVFP4)", desc: "Premium MoE, 12B active, NVFP4 weights" },
     { id: "llama-3-1-nemotron-nano-8b", label: "Llama-3.1-Nemotron Nano 8B", desc: "Dense Llama-3.1 backbone, NVIDIA-tuned" },
-    { id: "llama-3-1-nemotron-super-49b", label: "Llama-3.1-Nemotron Super 49B", desc: "Mid-tier dense Llama-3.1 fine-tune" },
+    { id: "llama-3-3-nemotron-super-49b", label: "Llama-3.3-Nemotron Super 49B", desc: "Mid-tier dense Llama-3.3 fine-tune (NAS-pruned)" },
     { id: "llama-3-1-nemotron-70b", label: "Llama-3.1-Nemotron 70B Instruct", desc: "NVIDIA-tuned 70B instruct (~140GB BF16)" },
     { id: "llama-3-1-nemotron-ultra-253b", label: "Llama-3.1-Nemotron Ultra 253B", desc: "Ultra-scale dense 253B (multi-node)" },
     { id: "custom", label: "Custom HF ID", desc: "Provide any custom Hugging Face ID" },

@@ -87,7 +87,7 @@ export function getMachineTypeRecommendation(gpuType: string, gpuCount: number):
 // the same image - the container selects BF16/FP8 at startup.
 const NIM_CATALOG: Partial<Record<GKEConfig["modelType"], string>> = {
   "llama-3-1-nemotron-nano-8b":          "nvcr.io/nim/nvidia/llama-3.1-nemotron-nano-8b-v1:latest",
-  "llama-3-1-nemotron-super-49b":        "nvcr.io/nim/nvidia/llama-3.3-nemotron-super-49b-v1:latest",
+  "llama-3-3-nemotron-super-49b":        "nvcr.io/nim/nvidia/llama-3.3-nemotron-super-49b-v1:latest",
   "llama-3-1-nemotron-70b":              "nvcr.io/nim/nvidia/llama-3.1-nemotron-70b-instruct:latest",
   "nemotron-3-nano-30b-a3b-bf16":        "nvcr.io/nim/nvidia/nemotron-3-nano:latest",
   "nemotron-3-nano-30b-a3b-fp8":         "nvcr.io/nim/nvidia/nemotron-3-nano:latest",
@@ -141,11 +141,11 @@ export function getModelInfo(config: GKEConfig): { id: string; size: number; nam
         size: 16,
         name: "Llama-3.1-Nemotron Nano 8B v1",
       };
-    case "llama-3-1-nemotron-super-49b":
+    case "llama-3-3-nemotron-super-49b":
       return {
-        id: "nvidia/Llama-3.1-Nemotron-Super-49B-v1",
+        id: "nvidia/Llama-3.3-Nemotron-Super-49B-v1",
         size: 98,
-        name: "Llama-3.1-Nemotron Super 49B v1",
+        name: "Llama-3.3-Nemotron Super 49B v1",
       };
     case "llama-3-1-nemotron-70b":
       return {
