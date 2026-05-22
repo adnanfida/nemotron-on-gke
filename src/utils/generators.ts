@@ -645,7 +645,8 @@ gsutil mb -l us-central1 gs://${config.gcsBucketName || "my-gke-nemotron-weights
 
   let clusterCommand = "";
   if (isAutopilot) {
-    // Autopilot enables Workload Identity by default - no extra flag required.
+    // Autopilot enables Workload Identity AND the GCS-FUSE CSI driver
+    // by default - no extra flags required.
     clusterCommand = `# Create a GKE Autopilot cluster loaded with GPU support
 gcloud container clusters create-auto nemotron-cluster \\
     --region us-central1 \\
@@ -653,13 +654,18 @@ gcloud container clusters create-auto nemotron-cluster \\
   } else {
     const wiClusterFlag = useKsa ? " \\\n    --workload-pool=\$PROJECT_ID.svc.id.goog" : "";
     const wiNodeFlag = useKsa ? " \\\n    --workload-metadata=GKE_METADATA" : "";
+    // GCS-FUSE on Standard clusters needs the addon enabled at cluster
+    // creation time (Autopilot has it on by default).
+    const gcsFuseAddonFlag = config.storageType === "gcs-fuse"
+      ? " \\\n    --addons=GcsFuseCsiDriver"
+      : "";
     clusterCommand = `# Create a GKE Standard cluster with a dynamic GPU Node Pool
 # First create the minimal cluster manager control plane
 gcloud container clusters create nemotron-cluster \\
     --zone us-central1-a \\
     --num-nodes=1 \\
     --machine-type=e2-standard-4 \\
-    --project=\$PROJECT_ID${wiClusterFlag}
+    --project=\$PROJECT_ID${wiClusterFlag}${gcsFuseAddonFlag}
 
 # Create a dedicated high-throughput GPU Node pool accommodating your configuration
 gcloud container node-pools create nemotron-gpu-pool \\
@@ -672,6 +678,21 @@ gcloud container node-pools create nemotron-gpu-pool \\
     --scopes=https://www.googleapis.com/auth/cloud-platform \\
     --enable-autoscaling --min-nodes=0 --max-nodes=2${wiNodeFlag}`;
   }
+
+  // On Standard clusters the NVIDIA GPU device driver isn't pre-installed.
+  // The COS driver-installer DaemonSet from GoogleCloudPlatform/container-
+  // engine-accelerators handles all current driver versions; without this
+  // pods stay Pending with 'no nvidia.com/gpu available'. Autopilot installs
+  // drivers automatically.
+  const gpuDriverInstallBlock = !isAutopilot
+    ? `
+# ----------------------------------------------------
+# Install NVIDIA GPU device drivers (Standard clusters only)
+# ----------------------------------------------------
+echo "Installing NVIDIA GPU device driver DaemonSet..."
+kubectl apply -f https://raw.githubusercontent.com/GoogleCloudPlatform/container-engine-accelerators/master/nvidia-driver-installer/cos/daemonset-preloaded.yaml
+`
+    : "";
 
   let wiSetupBlock = "";
   if (useKsa) {
@@ -764,7 +785,7 @@ gcloud container clusters get-credentials nemotron-cluster \\
 
 # Create GKE standard namespace
 kubectl create namespace \$NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
-${wiSetupBlock}
+${gpuDriverInstallBlock}${wiSetupBlock}
 ${secretsShellBlock}
 
 # ----------------------------------------------------
