@@ -9,7 +9,7 @@ import { Sparkles, Terminal, FileCode, MessageSquare } from "lucide-react";
 
 export default function App() {
   const [config, setConfig] = useState<GKEConfig>({
-    modelType: "nemotron-3-8b-chat",
+    modelType: "llama-3-1-nemotron-nano-8b",
     customModelId: "",
     servingFramework: "vllm",
     gpuType: "nvidia-l4",
@@ -42,7 +42,7 @@ export default function App() {
 
   const resetConfig = () => {
     setConfig({
-      modelType: "nemotron-3-8b-chat",
+      modelType: "llama-3-1-nemotron-nano-8b",
       customModelId: "",
       servingFramework: "vllm",
       gpuType: "nvidia-l4",

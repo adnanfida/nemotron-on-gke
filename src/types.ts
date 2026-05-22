@@ -1,15 +1,16 @@
 export interface GKEConfig {
-  modelType: 
-    | "nemotron-3-8b-chat" 
-    | "nemotron-3-8b-qa" 
-    | "nemotron-3-8b-base" 
-    | "nemotron-3-8b-instruct" 
-    | "nemotron-3-8b-summarize" 
-    | "nemotron-3-8b-code" 
-    | "nemotron-3-nano-30b"
-    | "nemotron-3-super-120b"
-    | "llama-3-nemotron-70b" 
-    | "llama-nemotron-ultra-253b"
+  modelType:
+    // Nemotron 3 family (hybrid Mamba-Transformer)
+    | "nemotron-3-nano-4b"
+    | "nemotron-3-nano-30b-a3b-bf16"
+    | "nemotron-3-nano-30b-a3b-fp8"
+    | "nemotron-3-nano-omni-30b-a3b"
+    | "nemotron-3-super-120b-a12b-nvfp4"
+    // Llama-3.1-Nemotron family (Llama backbone, NVIDIA-tuned)
+    | "llama-3-1-nemotron-nano-8b"
+    | "llama-3-1-nemotron-super-49b"
+    | "llama-3-1-nemotron-70b"
+    | "llama-3-1-nemotron-ultra-253b"
     | "custom";
   customModelId: string;
   servingFramework: "vllm" | "nim" | "triton";

@@ -51,72 +51,68 @@ export function getMachineTypeRecommendation(gpuType: string, gpuCount: number):
   }
 }
 
+// Size = approximate on-disk / VRAM-resident weight footprint in GB.
+// Heuristic: BF16/FP16 ~= 2 * params, FP8 ~= 1 * params, NVFP4 ~= 0.5 * params.
 export function getModelInfo(config: GKEConfig): { id: string; size: number; name: string } {
   switch (config.modelType) {
-    case "nemotron-3-8b-chat":
+    case "nemotron-3-nano-4b":
       return {
-        id: "nvidia/nemotron-3-8b-chat-1.1",
-        size: 16,
-        name: "Nemotron-3 8B Chat 1.1",
+        id: "nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16",
+        size: 8,
+        name: "Nemotron-3 Nano 4B (BF16)",
       };
-    case "nemotron-3-8b-qa":
+    case "nemotron-3-nano-30b-a3b-bf16":
       return {
-        id: "nvidia/nemotron-3-8b-qa-4k",
-        size: 16,
-        name: "Nemotron-3 8B Question-Answering 4k",
-      };
-    case "nemotron-3-8b-base":
-      return {
-        id: "nvidia/nemotron-3-8b-base",
-        size: 16,
-        name: "Nemotron-3 8B Foundational Base",
-      };
-    case "nemotron-3-8b-instruct":
-      return {
-        id: "nvidia/nemotron-3-8b-instruct",
-        size: 16,
-        name: "Nemotron-3 8B Instruct",
-      };
-    case "nemotron-3-8b-summarize":
-      return {
-        id: "nvidia/nemotron-3-8b-summarize-4k",
-        size: 16,
-        name: "Nemotron-3 8B Summarize-4k",
-      };
-    case "nemotron-3-8b-code":
-      return {
-        id: "nvidia/nemotron-3-8b-code-4k",
-        size: 16,
-        name: "Nemotron-3 8B Programming Code-4k",
-      };
-    case "llama-3-nemotron-70b":
-      return {
-        id: "nvidia/Llama-3-Nemotron-70B-Instruct",
-        size: 140,
-        name: "Llama-3 Nemotron 70B Instruct",
-      };
-    case "nemotron-3-nano-30b":
-      return {
-        id: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+        id: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
         size: 60,
-        name: "Nemotron-3 Nano 30B A3B",
+        name: "Nemotron-3 Nano 30B-A3B (BF16)",
       };
-    case "nemotron-3-super-120b":
+    case "nemotron-3-nano-30b-a3b-fp8":
       return {
-        id: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8",
-        size: 120, // 120 GB in compressed FP8 format
-        name: "Nemotron-3 Super 120B A12B FP8",
+        id: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8",
+        size: 30,
+        name: "Nemotron-3 Nano 30B-A3B (FP8)",
       };
-    case "llama-nemotron-ultra-253b":
+    case "nemotron-3-nano-omni-30b-a3b":
       return {
-        id: "nvidia/Llama-Nemotron-Ultra-253B",
+        id: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16",
+        size: 60,
+        name: "Nemotron-3 Nano Omni 30B-A3B Reasoning (BF16)",
+      };
+    case "nemotron-3-super-120b-a12b-nvfp4":
+      return {
+        id: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4",
+        size: 60,
+        name: "Nemotron-3 Super 120B-A12B (NVFP4)",
+      };
+    case "llama-3-1-nemotron-nano-8b":
+      return {
+        id: "nvidia/Llama-3.1-Nemotron-Nano-8B-v1",
+        size: 16,
+        name: "Llama-3.1-Nemotron Nano 8B v1",
+      };
+    case "llama-3-1-nemotron-super-49b":
+      return {
+        id: "nvidia/Llama-3.1-Nemotron-Super-49B-v1",
+        size: 98,
+        name: "Llama-3.1-Nemotron Super 49B v1",
+      };
+    case "llama-3-1-nemotron-70b":
+      return {
+        id: "nvidia/Llama-3.1-Nemotron-70B-Instruct-HF",
+        size: 140,
+        name: "Llama-3.1-Nemotron 70B Instruct",
+      };
+    case "llama-3-1-nemotron-ultra-253b":
+      return {
+        id: "nvidia/Llama-3.1-Nemotron-Ultra-253B-v1",
         size: 506,
-        name: "Llama Nemotron Ultra 253B",
+        name: "Llama-3.1-Nemotron Ultra 253B v1",
       };
     default:
       return {
         id: config.customModelId || "my-custom-org/nemotron-model",
-        size: 32, // baseline guess
+        size: 32,
         name: "Custom Nemotron-based LLM",
       };
   }

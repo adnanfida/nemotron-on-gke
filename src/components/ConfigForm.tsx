@@ -12,16 +12,15 @@ interface ConfigFormProps {
 
 export default function ConfigForm({ config, onChange, onReset }: ConfigFormProps) {
   const models: { id: GKEConfig["modelType"]; label: string; desc: string }[] = [
-    { id: "nemotron-3-8b-chat", label: "Nemotron-3 8B Chat", desc: "Multi-turn conversational assistant" },
-    { id: "nemotron-3-8b-qa", label: "Nemotron-3 8B QA", desc: "Optimized for Question-Answering (4k)" },
-    { id: "nemotron-3-8b-base", label: "Nemotron-3 8B Base", desc: "Foundational base pre-trained model" },
-    { id: "nemotron-3-8b-instruct", label: "Nemotron-3 8B Instruct", desc: "Single-turn instruction-following" },
-    { id: "nemotron-3-8b-summarize", label: "Nemotron-3 8B Summarize", desc: "Distill documents into key summaries" },
-    { id: "nemotron-3-8b-code", label: "Nemotron-3 8B Code", desc: "Tuned for programming & dev syntax" },
-    { id: "nemotron-3-nano-30b", label: "Nemotron-3 Nano 30B A3B", desc: "Dense hybrid agentic reasoning agent" },
-    { id: "nemotron-3-super-120b", label: "Nemotron-3 Super 120B", desc: "Premium Hybrid Mamba-Transformer MoE (FP8)" },
-    { id: "llama-3-nemotron-70b", label: "Llama-3 Nemotron 70B", desc: "NVIDIA-tuned enterprise 140GB tier" },
-    { id: "llama-nemotron-ultra-253b", label: "Llama Nemotron Ultra 253B", desc: "Ultra-scale 253B model for extreme code/reasoning" },
+    { id: "nemotron-3-nano-4b", label: "Nemotron-3 Nano 4B", desc: "Edge/Jetson-friendly hybrid 4B (BF16)" },
+    { id: "nemotron-3-nano-30b-a3b-bf16", label: "Nemotron-3 Nano 30B-A3B (BF16)", desc: "Hybrid MoE, 3B active per fwd pass" },
+    { id: "nemotron-3-nano-30b-a3b-fp8", label: "Nemotron-3 Nano 30B-A3B (FP8)", desc: "Same as above, FP8 weights (~30GB)" },
+    { id: "nemotron-3-nano-omni-30b-a3b", label: "Nemotron-3 Nano Omni 30B-A3B", desc: "Text + image + video + audio reasoning" },
+    { id: "nemotron-3-super-120b-a12b-nvfp4", label: "Nemotron-3 Super 120B-A12B (NVFP4)", desc: "Premium MoE, 12B active, NVFP4 weights" },
+    { id: "llama-3-1-nemotron-nano-8b", label: "Llama-3.1-Nemotron Nano 8B", desc: "Dense Llama-3.1 backbone, NVIDIA-tuned" },
+    { id: "llama-3-1-nemotron-super-49b", label: "Llama-3.1-Nemotron Super 49B", desc: "Mid-tier dense Llama-3.1 fine-tune" },
+    { id: "llama-3-1-nemotron-70b", label: "Llama-3.1-Nemotron 70B Instruct", desc: "NVIDIA-tuned 70B instruct (~140GB BF16)" },
+    { id: "llama-3-1-nemotron-ultra-253b", label: "Llama-3.1-Nemotron Ultra 253B", desc: "Ultra-scale dense 253B (multi-node)" },
     { id: "custom", label: "Custom HF ID", desc: "Provide any custom Hugging Face ID" },
   ];
 
