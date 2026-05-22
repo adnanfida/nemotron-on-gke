@@ -444,6 +444,35 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
   // for this (gpuType, gpuCount), minus headroom for daemonsets/sidecars.
   const { cpu: cpuCount, memoryGi: memCount } = getPodResources(config.gpuType, config.gpuCount);
 
+  // Per-framework health endpoints. startupProbe grants up to 30 min for
+  // weight load (failureThreshold: 60 * periodSeconds: 30s); readiness +
+  // liveness take over once the startupProbe has succeeded once.
+  //   vLLM   v0.12+ : /health         (ready=live)
+  //   Triton v2     : /v2/health/{ready,live}
+  //   NIM           : /v1/health/{ready,live}
+  const probePaths =
+    isVllm   ? { ready: "/health",            live: "/health" } :
+    isNim    ? { ready: "/v1/health/ready",   live: "/v1/health/live" } :
+               { ready: "/v2/health/ready",   live: "/v2/health/live" };
+  const probesBlock = `        startupProbe:
+          httpGet:
+            path: ${probePaths.ready}
+            port: 8000
+          periodSeconds: 30
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: ${probePaths.ready}
+            port: 8000
+          periodSeconds: 10
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: ${probePaths.live}
+            port: 8000
+          periodSeconds: 30
+          failureThreshold: 3`;
+
   const manifest = `apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -477,6 +506,7 @@ ${containerPorts}
             nvidia.com/gpu: "${resourceGpus}"
 ${envVars}
 ${volumeMountsBlock}
+${probesBlock}
 ${constraintsBlock}
 ${volumesBlock}
 `;
