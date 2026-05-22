@@ -1,7 +1,8 @@
 import React from "react";
 import { GKEConfig } from "../types";
-import { 
-  Server, Cpu, Database, Key, Layers, Settings2, RefreshCcw, Info
+import { getNimImage } from "../utils/generators";
+import {
+  Server, Cpu, Database, Key, Layers, Settings2, RefreshCcw, Info, AlertTriangle
 } from "lucide-react";
 
 interface ConfigFormProps {
@@ -131,6 +132,18 @@ export default function ConfigForm({ config, onChange, onReset }: ConfigFormProp
               <span className="text-[10px] text-slate-500 mt-1 leading-relaxed">Multi-model pipelines • Heavy scale</span>
             </button>
           </div>
+
+          {config.servingFramework === "nim" && !getNimImage(config.modelType).supported && (
+            <div className="flex gap-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11px] leading-snug">
+              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <strong>No published NIM</strong> for this model. The generated deployment
+                will include a placeholder image and a warning comment. Switch to vLLM or
+                Triton, or pick a model with a known NIM container (Llama-3.1-Nemotron 70B,
+                Nemotron-3 Nano Omni 30B).
+              </div>
+            </div>
+          )}
         </div>
 
         {/* SECTION 3: Acceleration hardware */}

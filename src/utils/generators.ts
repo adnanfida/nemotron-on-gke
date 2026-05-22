@@ -51,6 +51,20 @@ export function getMachineTypeRecommendation(gpuType: string, gpuCount: number):
   }
 }
 
+// NIM container catalog. Only models with a known nvcr.io/nim image are
+// listed. For anything else the deployment is emitted with a warning and
+// the UI surfaces a banner advising the user to switch to vLLM or Triton.
+const NIM_CATALOG: Partial<Record<GKEConfig["modelType"], string>> = {
+  "llama-3-1-nemotron-70b": "nvcr.io/nim/nvidia/llama-3.1-nemotron-70b-instruct:latest",
+  "nemotron-3-nano-omni-30b-a3b": "nvcr.io/nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:latest",
+};
+
+export function getNimImage(modelType: GKEConfig["modelType"]): { image: string; supported: boolean } {
+  const img = NIM_CATALOG[modelType];
+  if (img) return { image: img, supported: true };
+  return { image: "nvcr.io/nim/nvidia/PLACEHOLDER-NO-NIM-PUBLISHED:latest", supported: false };
+}
+
 // Size = approximate on-disk / VRAM-resident weight footprint in GB.
 // Heuristic: BF16/FP16 ~= 2 * params, FP8 ~= 1 * params, NVFP4 ~= 0.5 * params.
 export function getModelInfo(config: GKEConfig): { id: string; size: number; name: string } {
@@ -290,14 +304,15 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
     envsList += `\n        - name: VLLM_CACHE_DIR\n          value: "/data"`;
     envVars = `        env:${envsList}`;
   } else if (isNim) {
-    // NVIDIA NIM deployment
-    containerImage = `nvcr.io/nim/nvidia/${config.modelType}-chat:latest`;
-    if (config.modelType === "custom") {
-      containerImage = `nvcr.io/nim/nvidia/nemotron-3-8b-chat:latest`; // default custom
-    }
-    containerArgs = `        # NIM auto-optimizes based on the accessible GPUs and volume caches
-        args:
-        - "nim_server"`;
+    // NIM containers ship an ENTRYPOINT that starts the OpenAI-compatible
+    // server; we only need to set the image. Args are intentionally empty.
+    const nim = getNimImage(config.modelType);
+    containerImage = nim.image;
+    containerArgs = nim.supported
+      ? `        # NIM auto-optimizes based on the accessible GPUs and volume caches`
+      : `        # WARNING: no published NIM container exists for ${config.modelType}.
+        # Replace 'image:' above with a valid nvcr.io/nim path, or switch
+        # the Serving Framework to vLLM or Triton in the generator UI.`;
     containerPorts = `        ports:
         - containerPort: 8000
           name: openai-api`;
