@@ -160,6 +160,18 @@ export function generateAllFiles(config: GKEConfig): GeneratedFile[] {
     });
   }
 
+  // 4b. ServiceAccount (KSA) for Workload Identity.
+  // Required whenever the pod needs to authenticate to GCP APIs - explicit
+  // WI opt-in, or GCS-FUSE (which authenticates the bucket mount via WI).
+  if (config.enableWorkloadIdentity || config.storageType === "gcs-fuse") {
+    files.push({
+      name: "gke-serviceaccount.yaml",
+      language: "yaml",
+      description: "Kubernetes ServiceAccount annotated to impersonate a GCP IAM service account via Workload Identity.",
+      content: generateServiceAccountYaml(config)
+    });
+  }
+
   // 5. deploy.sh
   files.push({
     name: "deploy.sh",
@@ -227,7 +239,10 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
           mountPath: /data`;
   }
 
-  // Annotations
+  // Pod-template annotations. Workload Identity is *not* an annotation on
+  // the pod - it's the KSA reference (serviceAccountName below) plus the
+  // KSA's iam.gke.io/gcp-service-account annotation (emitted by
+  // generateServiceAccountYaml). Only GCS-FUSE keeps annotations here.
   let annotationsBlock = "";
   if (config.storageType === "gcs-fuse") {
     annotationsBlock = `      annotations:
@@ -236,12 +251,10 @@ function generateDeploymentYaml(config: GKEConfig, modelInfo: { id: string; size
         gke-gcsfuse/memory-limit: "6Gi"`;
   }
 
-  if (config.enableWorkloadIdentity) {
-    const annotGcs = config.storageType === "gcs-fuse" ? `\n        iam.gke.io/gke-metadata-server-enabled: "true"` : "";
-    annotationsBlock = `      annotations:${annotGcs}
-        # Required for authenticating safely against Google Cloud services without keys
-        iam.gke.io/gke-metadata-server-enabled: "true"`;
-  }
+  // serviceAccountName line - set when WI is on OR GCS-FUSE is in use
+  // (GCS-FUSE needs a WI-bound KSA to authenticate to the bucket).
+  const useKsa = config.enableWorkloadIdentity || config.storageType === "gcs-fuse";
+  const serviceAccountLine = useKsa ? `      serviceAccountName: nemotron-sa\n` : "";
 
   // Image & Startup commands based on serving framework
   let containerImage = "";
@@ -369,8 +382,8 @@ spec:
   template:
     metadata:
       labels:
-        app: nemotron-service\n${annotationsBlock ? annotationsBlock + "\n" : ""}\n    spec:
-      containers:
+        app: nemotron-service\n${annotationsBlock ? annotationsBlock + "\n" : ""}    spec:
+${serviceAccountLine}      containers:
       - name: llm-engine
         image: ${containerImage}
 ${containerArgs}
@@ -427,6 +440,19 @@ ${ports}
 `;
 }
 
+function generateServiceAccountYaml(config: GKEConfig): string {
+  return `apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nemotron-sa
+  namespace: ${config.namespace || "default"}
+  annotations:
+    # Bind this KSA to a GCP IAM service account. Create the GSA and the
+    # workloadIdentityUser binding via deploy.sh, then replace the email below.
+    iam.gke.io/gcp-service-account: nemotron-gsa@YOUR_PROJECT_ID.iam.gserviceaccount.com
+`;
+}
+
 function generateSecretsYaml(config: GKEConfig): string {
   let dataLines = "";
   if (config.useHuggingFaceToken) {
@@ -478,20 +504,25 @@ gsutil mb -l us-central1 gs://${config.gcsBucketName || "my-gke-nemotron-weights
 `;
   }
 
+  const useKsa = config.enableWorkloadIdentity || config.storageType === "gcs-fuse";
+
   let clusterCommand = "";
   if (isAutopilot) {
+    // Autopilot enables Workload Identity by default - no extra flag required.
     clusterCommand = `# Create a GKE Autopilot cluster loaded with GPU support
 gcloud container clusters create-auto nemotron-cluster \\
     --region us-central1 \\
     --project=\$PROJECT_ID`;
   } else {
+    const wiClusterFlag = useKsa ? " \\\n    --workload-pool=\$PROJECT_ID.svc.id.goog" : "";
+    const wiNodeFlag = useKsa ? " \\\n    --workload-metadata=GKE_METADATA" : "";
     clusterCommand = `# Create a GKE Standard cluster with a dynamic GPU Node Pool
 # First create the minimal cluster manager control plane
 gcloud container clusters create nemotron-cluster \\
     --zone us-central1-a \\
     --num-nodes=1 \\
     --machine-type=e2-standard-4 \\
-    --project=\$PROJECT_ID
+    --project=\$PROJECT_ID${wiClusterFlag}
 
 # Create a dedicated high-throughput GPU Node pool accommodating your configuration
 gcloud container node-pools create nemotron-gpu-pool \\
@@ -502,7 +533,34 @@ gcloud container node-pools create nemotron-gpu-pool \\
     --num-nodes=1 \\
     --project=\$PROJECT_ID \\
     --scopes=https://www.googleapis.com/auth/cloud-platform \\
-    --enable-autoscaling --min-nodes=0 --max-nodes=2`;
+    --enable-autoscaling --min-nodes=0 --max-nodes=2${wiNodeFlag}`;
+  }
+
+  let wiSetupBlock = "";
+  if (useKsa) {
+    const gcsGrant = config.storageType === "gcs-fuse"
+      ? `\n# Grant the GSA read/write on the model bucket
+gcloud storage buckets add-iam-policy-binding gs://${config.gcsBucketName || "my-gke-nemotron-weights"} \\
+    --member="serviceAccount:nemotron-gsa@\$PROJECT_ID.iam.gserviceaccount.com" \\
+    --role="roles/storage.objectUser"\n`
+      : "";
+    wiSetupBlock = `
+# ----------------------------------------------------
+# Workload Identity: create GSA and bind it to the KSA
+# (gke-serviceaccount.yaml provides the KSA side of the link)
+# ----------------------------------------------------
+gcloud iam service-accounts create nemotron-gsa \\
+    --project=\$PROJECT_ID || echo "GSA already exists, continuing"
+
+gcloud iam service-accounts add-iam-policy-binding \\
+    nemotron-gsa@\$PROJECT_ID.iam.gserviceaccount.com \\
+    --role="roles/iam.workloadIdentityUser" \\
+    --member="serviceAccount:\$PROJECT_ID.svc.id.goog[\$NAMESPACE/nemotron-sa]"
+${gcsGrant}
+# Stamp the real GSA email into the KSA manifest before applying
+sed -i.bak "s/YOUR_PROJECT_ID/\$PROJECT_ID/g" gke-serviceaccount.yaml
+kubectl apply -f gke-serviceaccount.yaml
+`;
   }
 
   let secretsShellBlock = "";
@@ -556,7 +614,7 @@ gcloud container clusters get-credentials nemotron-cluster \\
 
 # Create GKE standard namespace
 kubectl create namespace \$NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
-
+${wiSetupBlock}
 ${secretsShellBlock}
 
 # ----------------------------------------------------
