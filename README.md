@@ -1,6 +1,6 @@
 # GKE Deployment Generator for Nemotron & LLMs
 
-An advanced interactive configuration architect for generating production-ready Google Kubernetes Engine (GKE) deployments carrying Nemotron-3 and other LLM parameters. This interface assists infrastructure engineers and AI platform developers in automating the generation of optimized Kubernetes manifests, storage claims, and hardware configurations for NVIDIA GPU acceleration.
+An interactive configuration UI that generates starter Google Kubernetes Engine (GKE) manifests for serving NVIDIA Nemotron-3 (and related Llama-3.1-Nemotron) models. Pick a model, a serving framework (vLLM / NIM / Triton), GPU class, storage backend, and identity options; the app emits a Deployment, Service, optional PVC, ServiceAccount, HPA + PDB, and a `deploy.sh` that wires it all together. **Treat the output as a reviewed starting point, not as production-ready as-is** — see _Limitations_ below.
 
 ---
 
@@ -110,10 +110,13 @@ graph TD
 1.  **Select Your Architecture Targets**: Point the interface to your desired target model, serving framework, cluster category (Autopilot / Standard GKE), and security levels.
 2.  **Evaluate Hardware Feasibility**: Check the interactive **Hardware Feasibility & VRAM Gauges** widget, which assesses the exact weight capacity margin. If resources are insufficient, scale the **GPU Accelerator counts** (1x, 2x, 4x, or 8x) to configure proper Tensor Parallelism.
 3.  **Deploy Blueprint Artifacts**: Access the **Deployment Blueprints** panel to fetch the generated files:
-    *   📁 `deployment.yaml`: Fully configured Kubernetes Deployment manifest containing NodeSelectors, GPU resource quotas, volume-mount structures, and readiness/liveness checks.
-    *   📁 `service.yaml`: Cluster routing specifications matching LoadBalancer or internal ClusterIP bindings.
-    *   📁 `storage.yaml`: High-speed block storage definitions (PersistentVolume / PVC annotations).
-    *   📁 `security.yaml`: Secret bindings for API credentials and Workload Identity maps.
+    *   📁 `gke-deployment.yaml`: Kubernetes Deployment with `serviceAccountName`, GPU resource requests, volume mounts, and per-SKU CPU/memory sized to the chosen machine type minus daemonset headroom.
+    *   📁 `gke-service.yaml`: ClusterIP or LoadBalancer Service exposing the OpenAI-compatible endpoint (port 8000) and, for Triton, the gRPC + metrics ports.
+    *   📁 `gke-pvc.yaml` _(when storage = SSD)_: PersistentVolumeClaim against the `premium-rwo` storage class.
+    *   📁 `gke-serviceaccount.yaml` _(when Workload Identity or GCS-FUSE is on)_: KSA annotated with the GSA email that `deploy.sh` creates and binds.
+    *   📁 `gke-hpa.yaml` + `gke-pdb.yaml` _(when scaling is on)_: HorizontalPodAutoscaler (CPU-based, with a commented-out GPU duty-cycle alternative) and a PodDisruptionBudget with `minAvailable: 1`.
+    *   📁 `deploy.sh`: gcloud + kubectl pipeline that creates the cluster/node-pool, the GSA + workloadIdentityUser binding, the `nemotron-secrets` Secret (via `kubectl create secret`, not a YAML file), and applies the manifests.
+    *   📁 `test-inference.sh`: cURL smoke test against the deployed endpoint.
 
 ---
 
@@ -160,6 +163,18 @@ When applying the generated configurations, adhere to the following cloud hygien
         --workload-pool=<project-id>.svc.id.goog
     ```
 3.  **Allocate Secret Key References**: Make sure authentication tokens (like HuggingFace access parameters and NGC API registries) match target security manifests within your dedicated namespace.
+
+---
+
+## ⚠️ Limitations
+
+The generator is a fast-start scaffold, not a finished production deployment. Before applying to a real cluster, plan for:
+
+- **NIM coverage is partial.** Only a couple of Nemotron models have published `nvcr.io/nim/...` containers today (Llama-3.1-Nemotron 70B Instruct, Nemotron-3 Nano Omni 30B Reasoning). Other models picked with framework=NIM render a `# WARNING:` placeholder and the UI surfaces a banner — switch to vLLM or Triton, or supply your own image.
+- **VRAM math is heuristic.** `2 × params` for BF16, `1 × params` for FP8, `0.5 × params` for NVFP4. Real consumption depends on KV-cache size, batch limits, and quantization scheme; verify before committing to a GPU count.
+- **Manifests are starters.** No HPA tuning, no PriorityClass, no GPU sharing / MIG, no readiness probes beyond defaults. The CPU-based HPA target may not match your latency goals — wire up the GPU duty-cycle metric (sample is commented in `gke-hpa.yaml`) if you need it.
+- **Placeholders must be filled.** `deploy.sh` ships `PROJECT_ID="YOUR_GCP_PROJECT_ID"` and the secret-create step uses `YOUR_HF_TOKEN_HERE` / `YOUR_NVIDIA_NGC_API_KEY_HERE`. The KSA manifest references `nemotron-gsa@YOUR_PROJECT_ID.iam.gserviceaccount.com`; the script stamps the real project ID in via `sed` before applying.
+- **Gemini chat advisor needs `GEMINI_API_KEY`.** Without it, `/api/chat` returns 500. The endpoint enforces an origin allowlist (`ALLOWED_ORIGINS`, defaults to localhost) and a per-IP rate limit (`RATE_LIMIT_PER_MINUTE`, default 20/min).
 
 ---
 
