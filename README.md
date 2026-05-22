@@ -170,11 +170,28 @@ When applying the generated configurations, adhere to the following cloud hygien
 
 The generator is a fast-start scaffold, not a finished production deployment. Before applying to a real cluster, plan for:
 
-- **NIM coverage is partial.** Only a couple of Nemotron models have published `nvcr.io/nim/...` containers today (Llama-3.1-Nemotron 70B Instruct, Nemotron-3 Nano Omni 30B Reasoning). Other models picked with framework=NIM render a `# WARNING:` placeholder and the UI surfaces a banner — switch to vLLM or Triton, or supply your own image.
+- **NIM coverage is partial.** Seven Nemotron / Llama-Nemotron variants currently map to verified `nvcr.io/nim/...` containers: `llama-3.1-nemotron-nano-8b-v1`, `llama-3.3-nemotron-super-49b-v1`, `llama-3.1-nemotron-70b-instruct`, `nemotron-3-nano` (covers the BF16 + FP8 30B-A3B variants via internal NIM profiles), `nemotron-3-nano-omni-30b-a3b-reasoning`, and `nemotron-3-super-120b-a12b`. Models without a published NIM (Nemotron-3 Nano 4B, Llama-Nemotron Ultra 253B) render a `# WARNING:` placeholder in the manifest and the UI surfaces an amber banner — switch to vLLM or Triton, or supply your own image. New container paths land in `NIM_CATALOG` in `src/utils/generators.ts`.
 - **VRAM math is heuristic.** `2 × params` for BF16, `1 × params` for FP8, `0.5 × params` for NVFP4. Real consumption depends on KV-cache size, batch limits, and quantization scheme; verify before committing to a GPU count.
-- **Manifests are starters.** No HPA tuning, no PriorityClass, no GPU sharing / MIG, no readiness probes beyond defaults. The CPU-based HPA target may not match your latency goals — wire up the GPU duty-cycle metric (sample is commented in `gke-hpa.yaml`) if you need it.
-- **Placeholders must be filled.** `deploy.sh` ships `PROJECT_ID="YOUR_GCP_PROJECT_ID"` and the secret-create step uses `YOUR_HF_TOKEN_HERE` / `YOUR_NVIDIA_NGC_API_KEY_HERE`. The KSA manifest references `nemotron-gsa@YOUR_PROJECT_ID.iam.gserviceaccount.com`; the script stamps the real project ID in via `sed` before applying.
+- **Manifests are starters.** Per-framework `startupProbe` / `readinessProbe` / `livenessProbe` are emitted (vLLM `/health`, Triton `/v2/health/{ready,live}`, NIM `/v1/health/{ready,live}`) with a 30-minute startup grace for cold weight loads. What's still missing: HPA tuning, PriorityClass, GPU sharing / MIG, multi-replica weight sharing. The default HPA targets CPU utilization (not GPU duty-cycle, which would need the Custom Metrics Stackdriver Adapter) — sample external-metric block is commented in `gke-hpa.yaml`.
+- **Standard-cluster paths need extra prep handled by `deploy.sh`.** When `gkeType=standard`, the script adds `--addons=GcsFuseCsiDriver` to the cluster create when GCS-FUSE is selected, and applies the NVIDIA COS driver DaemonSet so GPU pods can actually schedule. Autopilot handles both automatically.
+- **NIM workloads get two secrets.** `deploy.sh` creates both the env-var Secret (`nemotron-secrets`) and the docker-registry pull secret (`nvcr-pull-secret`) under `nvcr.io` — both required, or NIM pods `ErrImagePull` even with the NGC key in the env-var Secret.
+- **Placeholders must be filled.** `deploy.sh` ships `PROJECT_ID="YOUR_GCP_PROJECT_ID"` and the secret-create step uses `YOUR_HF_TOKEN_HERE` / `YOUR_NVIDIA_NGC_API_KEY_HERE` (the latter in two places when serving NIM). The KSA manifest references `nemotron-gsa@YOUR_PROJECT_ID.iam.gserviceaccount.com`; the script stamps the real project ID in via `sed` before applying.
 - **Gemini chat advisor needs `GEMINI_API_KEY`.** Without it, `/api/chat` returns 500. The endpoint enforces an origin allowlist (`ALLOWED_ORIGINS`, defaults to localhost) and a per-IP rate limit (`RATE_LIMIT_PER_MINUTE`, default 20/min).
+
+---
+
+## 🧪 Verification
+
+The generator output is offline-validated against the Kubernetes OpenAPI schema:
+
+```bash
+npm install
+node --import tsx scripts/render-fixtures.ts
+```
+
+`scripts/render-fixtures.ts` calls `generateAllFiles` for 8 representative `(model × framework × storage × WI × scaling)` combinations covering the full branch matrix, writes the YAML to `/tmp/kubeconform-fixtures/`, and pipes each set through `kubeconform -summary -strict -ignore-missing-schemas`. Current matrix: 8 fixtures, 25 K8s resources, all valid. Add a new combo as a fixture entry if you're testing an untested branch.
+
+For deeper validation against a real cluster's admission controllers + CRDs, `kubectl apply --dry-run=server -f <combo-dir>` against a live GKE cluster is the next step up; offline schema validation alone won't catch GKE-specific policy.
 
 ---
 
